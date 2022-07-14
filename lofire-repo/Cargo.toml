@@ -1,0 +1,13 @@
+[package]
+name = "lofire-repo"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at
+# https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+blake3 = "1.3.1"
+chacha20 = "0.9.0"
+serde = "1.0.139"
+serde_bare = "0.5.0"
