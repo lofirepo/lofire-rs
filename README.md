@@ -19,10 +19,10 @@ cargo build
 
 ### Build the default package
 ```
-nix flake build
+nix build
 ```
 
 ### Build a specific package
 ```
-nix flake build '.#lofire-repo'
+nix build '.#lofire-repo'
 ```
