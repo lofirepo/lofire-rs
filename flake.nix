@@ -21,27 +21,28 @@
           cargo = rust;
           rustc = rust;
         }).buildRustPackage;
-      in {
+        myNativeBuildInputs = with pkgs; [
+        ];
+        myBuildInputs = with pkgs; [
+        ];
+        myBuildRustPackage = attrs:
+          buildRustPackage ({
+            version = "0.1.0";
+            src = ./.;
+            cargoLock.lockFile = ./Cargo.lock;
+            nativeBuildInputs = myNativeBuildInputs;
+            buildInputs = myBuildInputs;
+            #RUST_BACKTRACE=1;
+            #RUST_LOG="trace";
+          } // attrs);
+      in rec {
         packages = rec {
-          default = lofire;
-          lofire = buildRustPackage rec {
-            pname = "lofire";
-            version = "0.1.0";
-            src = ./.;
-            cargoLock.lockFile = ./Cargo.lock;
-          };
-          lofire-repo = buildRustPackage rec {
+          lofire-repo = myBuildRustPackage rec {
             pname = "lofire-repo";
-            version = "0.1.0";
-            src = ./.;
             buildAndTestSubdir = "./lofire-repo";
-            cargoLock.lockFile = ./Cargo.lock;
           };
+          default = lofire-repo;
         };
-        devShells.default = pkgs.mkShell {
-          buildInputs = [
-            rust
-          ];
-        };
+        defaultPackage = packages.default; # compat
       });
 }
