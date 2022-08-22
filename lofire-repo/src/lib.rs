@@ -1,8 +1,15 @@
-#[cfg(test)]
-mod tests {
-    #[test]
-    fn it_works() {
-        let result = 2 + 2;
-        assert_eq!(result, 4);
-    }
-}
+pub mod protocol;
+
+pub mod store;
+
+pub mod object;
+
+pub mod file;
+
+pub mod tree;
+
+pub mod branch;
+
+pub mod dag;
+
+pub mod repo;
