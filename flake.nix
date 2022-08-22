@@ -48,6 +48,10 @@
           pname = "lofire-repo";
           buildAndTestSubdir = "./lofire-repo";
         };
+        lofire-node = myBuildRustPackage rec {
+          pname = "lofire-node";
+          buildAndTestSubdir = "./lofire-node";
+        };
         default = lofire-repo;
       };
       defaultPackage = packages.default; # compat
