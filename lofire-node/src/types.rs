@@ -54,6 +54,7 @@ pub struct BloomFilter {
     pub k: u8,
 
     /// Filter
+    #[serde(with = "serde_bytes")]
     pub f: Vec<u8>,
 }
 
@@ -468,6 +469,7 @@ pub struct PeerAdvertContentV0 {
     pub version: u16,
 
     /// App-specific metadata (profile, cryptographic material, etc)
+    #[serde(with = "serde_bytes")]
     pub metadata: Vec<u8>,
 }
 
@@ -532,6 +534,7 @@ pub struct OverlayMessageContentPaddedV0 {
     pub content: OverlayMessageContentV0,
 
     /// Optional padding
+    #[serde(with = "serde_bytes")]
     pub padding: Vec<u8>,
 }
 
@@ -573,6 +576,7 @@ pub enum OverlayMessage {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct ServerHelloV0 {
     /// Nonce for ClientAuth
+    #[serde(with = "serde_bytes")]
     pub nonce: Vec<u8>,
 }
 
@@ -591,6 +595,7 @@ pub struct ClientAuthContentV0 {
     pub device: PubKey,
 
     /// Nonce from ServerHello
+    #[serde(with = "serde_bytes")]
     pub nonce: Vec<u8>,
 }
 
@@ -941,6 +946,7 @@ pub struct AppMessageV0 {
     pub content: AppMessageContentV0,
 
     /// Optional padding
+    #[serde(with = "serde_bytes")]
     pub padding: Vec<u8>,
 }
 

@@ -23,13 +23,14 @@ pub type InternalNode = Vec<SymKey>;
 pub type DataChunk = Vec<u8>;
 
 /// Content of ObjectV0: a Merkle tree node
-#[derive(Clone, Copy, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub enum ObjectContentV0 {
     /// Internal node with references to children
-    InternalNode,
+    InternalNode(InternalNode),
 
     /// Leaf node with encrypted data chunk
-    DataChunk,
+    #[serde(with = "serde_bytes")]
+    DataChunk(DataChunk),
 }
 
 /// List of ObjectId dependencies as encrypted Object content
@@ -119,7 +120,7 @@ pub enum RemoveBranch {
 }
 
 /// Commit object types
-#[derive(Clone, Copy, Debug, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq, Eq, Hash)]
 pub enum CommitType {
     RepositoryCommit,
     AddBranchCommit,
@@ -158,7 +159,7 @@ pub enum Member {
 /// First commit in a branch, signed by branch key
 /// In case of a fork, the commit deps indicat
 /// the previous branch heads.
-//XXX #[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct BranchV0 {
     /// Branch public key ID
     pub id: PubKey,
@@ -180,21 +181,22 @@ pub struct BranchV0 {
     pub ack_delay: RelTime,
 
     /// Tags for organizing branches within the repository
+    #[serde(with = "serde_bytes")]
     pub tags: Vec<u8>,
 
     /// App-specific metadata (validation rules, etc)
-    //XXX #[serde(with = "serde_bytes")]
+    #[serde(with = "serde_bytes")]
     pub metadata: Vec<u8>,
 }
 
 /// Branch definition
-//XXX #[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub enum Branch {
     V0(BranchV0),
 }
 
 /// Add members to an existing branch
-//XXX #[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct AddMembersV0 {
     /// Members to add, with permissions
     pub members: Vec<Member>,
@@ -212,7 +214,7 @@ pub struct AddMembersV0 {
 /// in that case this can only be used for adding new permissions,
 /// not to remove existing ones.
 /// The quorum and ackDelay can be changed as well
-//XXX #[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub enum AddMembers {
     V0(AddMembersV0),
 }
@@ -240,6 +242,7 @@ pub enum EndOfBranch {
 /// Transaction with CRDT operations
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub enum Transaction {
+    #[serde(with = "serde_bytes")]
     V0(Vec<u8>),
 }
 
@@ -270,7 +273,7 @@ pub enum Ack {
 }
 
 /// Commit body, corresponds to CommitType
-//XXX #[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub enum CommitBody {
     Repository(Repository),
     AddBranch(AddBranch),
@@ -305,6 +308,7 @@ pub struct CommitContentV0 {
     pub refs: Vec<ObjectRef>,
 
     /// App-specific metadata (commit message, creation time, etc)
+    #[serde(with = "serde_bytes")]
     pub metadata: Vec<u8>,
 
     /// Object with a CommitBody inside
@@ -332,14 +336,15 @@ pub enum Commit {
 }
 
 /// A file stored in an Object
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct FileV0 {
-    //XXX #[serde(with = "serde_bytes")]
+    #[serde(with = "serde_bytes")]
     pub content_type: Vec<u8>,
 
-    //XXX #[serde(with = "serde_bytes")]
+    #[serde(with = "serde_bytes")]
     pub metadata: Vec<u8>,
 
-    //XXX #[serde(with = "serde_bytes")]
+    #[serde(with = "serde_bytes")]
     pub content: Vec<u8>,
 }
 
