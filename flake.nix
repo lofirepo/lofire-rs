@@ -51,6 +51,10 @@
           // attrs);
     in rec {
       packages = rec {
+        lofire = myBuildRustPackage rec {
+          pname = "lofire";
+          buildAndTestSubdir = "./lofire";
+        };
         lofire-repo = myBuildRustPackage rec {
           pname = "lofire-repo";
           buildAndTestSubdir = "./lofire-repo";
@@ -59,7 +63,7 @@
           pname = "lofire-node";
           buildAndTestSubdir = "./lofire-node";
         };
-        default = lofire-repo;
+        default = lofire;
       };
       defaultPackage = packages.default; # compat
     });
