@@ -260,11 +260,11 @@ version = "0.1.0"
 dependencies = [
  "blake3",
  "chacha20",
- "lofire"
+ "lofire",
  "rkv",
  "serde",
  "serde_bare",
- "serde_bytes"
+ "serde_bytes",
  "tempfile",
 ]
 
