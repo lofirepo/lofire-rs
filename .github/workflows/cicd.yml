@@ -22,3 +22,33 @@ jobs:
           nix_conf: experimental-features = nix-command flakes
       - name: default package
         run: nix build
+  
+  lofire-package:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v2
+      - uses: nixbuild/nix-quick-install-action@v17
+        with:
+          nix_conf: experimental-features = nix-command flakes
+      - name: lofire package
+        run: nix build '.#lofire'
+  
+  lofire-repo-package:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v2
+      - uses: nixbuild/nix-quick-install-action@v17
+        with:
+          nix_conf: experimental-features = nix-command flakes
+      - name: lofire-repo package
+        run: nix build '.#lofire-repo'
+  
+  lofire-node-package:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v2
+      - uses: nixbuild/nix-quick-install-action@v17
+        with:
+          nix_conf: experimental-features = nix-command flakes
+      - name: lofire-node package
+        run: nix build '.#lofire-node'
