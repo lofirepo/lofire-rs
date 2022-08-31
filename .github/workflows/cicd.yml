@@ -1,0 +1,24 @@
+name: Build
+on: push
+jobs:
+  dev-shell:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v2
+      - uses: nixbuild/nix-quick-install-action@v17
+        with:
+          nix_conf: experimental-features = nix-command flakes
+      - name: nix
+        run: nix develop
+      - name: cargo
+        run: cargo build
+  
+  default-package:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v2
+      - uses: nixbuild/nix-quick-install-action@v17
+        with:
+          nix_conf: experimental-features = nix-command flakes
+      - name: default package
+        run: nix build
