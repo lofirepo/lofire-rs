@@ -8,11 +8,13 @@ jobs:
       - uses: nixbuild/nix-quick-install-action@v17
         with:
           nix_conf: experimental-features = nix-command flakes
-      - name: nix
+      - name: nix develop
         run: nix develop
-      - name: cargo
+      - name: cargo build
         run: cargo build
-  
+      - name: cargo test
+        run: cargo test
+
   default-package:
     runs-on: ubuntu-latest
     steps:
@@ -22,7 +24,7 @@ jobs:
           nix_conf: experimental-features = nix-command flakes
       - name: default package
         run: nix build
-  
+
   lofire-package:
     runs-on: ubuntu-latest
     steps:
@@ -32,7 +34,7 @@ jobs:
           nix_conf: experimental-features = nix-command flakes
       - name: lofire package
         run: nix build '.#lofire'
-  
+
   lofire-repo-package:
     runs-on: ubuntu-latest
     steps:
@@ -42,7 +44,7 @@ jobs:
           nix_conf: experimental-features = nix-command flakes
       - name: lofire-repo package
         run: nix build '.#lofire-repo'
-  
+
   lofire-node-package:
     runs-on: ubuntu-latest
     steps:
