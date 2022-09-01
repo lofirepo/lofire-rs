@@ -210,20 +210,20 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8371e4e5341c3a96db127eb2465ac681ced4c433e01dd0e938adbef26ba93ba5"
 
 [[package]]
-name = "lmdb-lofire"
+name = "lmdb-crypto-rs"
 version = "0.14.0"
-source = "git+https://github.com/nikoPLP/lmdb-rs.git?branch=master#bbe0707d22bd8ecd997ffac612324feba2a1281f"
+source = "git+https://github.com/nikoPLP/lmdb-rs.git?branch=master#13d9837d54d358b050c3d08a9debd23d80f3e426"
 dependencies = [
  "bitflags",
  "byteorder",
  "libc",
- "lmdb-lofire-sys",
+ "lmdb-crypto-sys",
 ]
 
 [[package]]
-name = "lmdb-lofire-sys"
+name = "lmdb-crypto-sys"
 version = "0.11.2"
-source = "git+https://github.com/nikoPLP/lmdb-rs.git?branch=master#bbe0707d22bd8ecd997ffac612324feba2a1281f"
+source = "git+https://github.com/nikoPLP/lmdb-rs.git?branch=master#13d9837d54d358b050c3d08a9debd23d80f3e426"
 dependencies = [
  "cc",
  "libc",
@@ -303,9 +303,9 @@ dependencies = [
 
 [[package]]
 name = "paste"
-version = "1.0.8"
+version = "1.0.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9423e2b32f7a043629287a536f21951e8c6a82482d0acb1eeebfc90bc2225b22"
+checksum = "b1de2e551fb905ac83f73f7aedf2f0cb4a0da7e35efa24a202a936269f1f18e1"
 
 [[package]]
 name = "percent-encoding"
@@ -358,7 +358,7 @@ dependencies = [
 [[package]]
 name = "rkv"
 version = "0.18.0"
-source = "git+https://github.com/nikoPLP/rkv.git?branch=main#84674c20e2d1b6947858fdd0fb165ba22f55eef8"
+source = "git+https://github.com/nikoPLP/rkv.git?branch=main#d29153d440d0b36fd6c29a609ce58010eb820595"
 dependencies = [
  "arrayref",
  "bincode",
@@ -366,7 +366,7 @@ dependencies = [
  "byteorder",
  "id-arena",
  "lazy_static",
- "lmdb-lofire",
+ "lmdb-crypto-rs",
  "log",
  "ordered-float",
  "paste",
@@ -448,18 +448,18 @@ dependencies = [
 
 [[package]]
 name = "thiserror"
-version = "1.0.32"
+version = "1.0.33"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f5f6586b7f764adc0231f4c79be7b920e766bb2f3e51b3661cdb263828f19994"
+checksum = "3d0a539a918745651435ac7db7a18761589a94cd7e94cd56999f828bf73c8a57"
 dependencies = [
  "thiserror-impl",
 ]
 
 [[package]]
 name = "thiserror-impl"
-version = "1.0.32"
+version = "1.0.33"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "12bafc5b54507e0149cdf1b145a5d80ab80a90bcd9275df43d4fff68460f6c21"
+checksum = "c251e90f708e16c49a16f4917dc2131e75222b72edfa9cb7f7c58ae56aae0c09"
 dependencies = [
  "proc-macro2",
  "quote",
