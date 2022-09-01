@@ -212,7 +212,7 @@ checksum = "8371e4e5341c3a96db127eb2465ac681ced4c433e01dd0e938adbef26ba93ba5"
 [[package]]
 name = "lmdb-crypto-rs"
 version = "0.14.0"
-source = "git+https://github.com/nikoPLP/lmdb-rs.git?branch=master#13d9837d54d358b050c3d08a9debd23d80f3e426"
+source = "git+https://github.com/p2pcollab/lmdb-rs.git?branch=master#1e7b86b70a4bd05870c7e97df58bba2f62db102a"
 dependencies = [
  "bitflags",
  "byteorder",
@@ -223,7 +223,7 @@ dependencies = [
 [[package]]
 name = "lmdb-crypto-sys"
 version = "0.11.2"
-source = "git+https://github.com/nikoPLP/lmdb-rs.git?branch=master#13d9837d54d358b050c3d08a9debd23d80f3e426"
+source = "git+https://github.com/p2pcollab/lmdb-rs.git?branch=master#1e7b86b70a4bd05870c7e97df58bba2f62db102a"
 dependencies = [
  "cc",
  "libc",
@@ -358,7 +358,7 @@ dependencies = [
 [[package]]
 name = "rkv"
 version = "0.18.0"
-source = "git+https://github.com/nikoPLP/rkv.git?branch=main#d29153d440d0b36fd6c29a609ce58010eb820595"
+source = "git+https://github.com/p2pcollab/rkv.git?branch=main#e1b0cc520d5faa11ea4987012bc11f2b6a8b312f"
 dependencies = [
  "arrayref",
  "bincode",
