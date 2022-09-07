@@ -35,7 +35,14 @@
         buildRustPackage ({
             version = "0.1.0";
             src = ./.;
-            cargoLock.lockFile = ./Cargo.lock;
+            cargoLock = {
+              lockFile = ./Cargo.lock;
+              outputHashes = {
+                "lmdb-crypto-rs-0.14.0" = "sha256-M0+HwoDRApHFw9gwkUfZUPLAx45sHPj3dLeQ+PHmZao=";
+                #pkgs.lib.fakeSha256;
+                "rkv-0.18.0" = "sha256-m2lVMo8gn1+0cV42hHfiRJgtDOxeqIkKHWDHetpZjsw=";
+              };
+            };
             nativeBuildInputs = myNativeBuildInputs;
             buildInputs = myBuildInputs;
             #RUST_BACKTRACE=1;
