@@ -350,7 +350,7 @@ dependencies = [
 [[package]]
 name = "rkv"
 version = "0.18.0"
-source = "git+https://github.com/p2pcollab/rkv.git?branch=main#e1b0cc520d5faa11ea4987012bc11f2b6a8b312f"
+source = "git+https://github.com/p2pcollab/rkv.git?branch=main#1771f400d65745e9df7bcb625a2d3fd67f44ac56"
 dependencies = [
  "arrayref",
  "bincode",
