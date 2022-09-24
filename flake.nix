@@ -40,7 +40,7 @@
               outputHashes = {
                 "lmdb-crypto-rs-0.14.0" = "sha256-6I/BdxJdLXMCfa6jcitkvtTOvNQ5baP4s5Ykzae+Pp0=";
                 #pkgs.lib.fakeSha256;
-                "rkv-0.18.0" = "sha256-m2lVMo8gn1+0cV42hHfiRJgtDOxeqIkKHWDHetpZjsw=";
+                "rkv-0.18.0" = "sha256-Ygek1eZe9W/qteeobZj+7r3sJ5j77uxCyYIFyoh8pVA=";
               };
             };
             nativeBuildInputs = myNativeBuildInputs;
