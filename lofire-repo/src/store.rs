@@ -38,7 +38,7 @@ impl Store {
         }
     }
 
-    pub fn get(&self, object_id: ObjectId) -> Result<ObjectV0, Error> {
+    pub fn get(&self, object_id: ObjectId) -> Result<Object, Error> {
         let lock = self.environment.read().unwrap();
         let reader = lock.read().unwrap();
 
@@ -46,10 +46,10 @@ impl Store {
 
         let obj_ser = self.main_store.get(&reader, obj_id_ser).unwrap();
 
-        serde_bare::from_slice::<ObjectV0>(&obj_ser.unwrap().to_bytes().unwrap())
+        serde_bare::from_slice::<Object>(&obj_ser.unwrap().to_bytes().unwrap())
     }
 
-    pub fn put(&self, object: ObjectV0) -> ObjectId {
+    pub fn put(&self, object: Object) -> ObjectId {
         let obj_ser = serde_bare::to_vec(&object).unwrap();
 
         let hash = blake3::hash(obj_ser.as_slice());
@@ -71,6 +71,7 @@ mod test {
 
     use crate::store::Store;
     use crate::types::*;
+    use lofire::types::*;
     use rkv::backend::{Lmdb, LmdbEnvironment};
     use rkv::{Manager, Rkv, StoreOptions, Value};
     #[allow(unused_imports)]
@@ -98,13 +99,21 @@ mod test {
             content: b"abc".to_vec(),
         };
 
-        let obj_id = store.put(obj);
+        let obj_id = store.put(Object::V0(obj.clone()));
 
         println!("ObjectId: {:?}", obj_id);
+        assert_eq!(
+            obj_id,
+            Digest::Blake3Digest32([
+                155, 83, 186, 17, 95, 10, 80, 31, 111, 24, 250, 64, 8, 145, 71, 193, 103, 246, 202,
+                28, 202, 144, 63, 65, 85, 229, 136, 85, 202, 34, 13, 85
+            ])
+        );
 
-        let objres = store.get(obj_id);
+        let objres = store.get(obj_id).unwrap();
 
-        println!("Object: {:?}", objres.unwrap());
+        println!("Object: {:?}", objres);
+        assert_eq!(objres, Object::V0(obj));
     }
 
     #[test]

@@ -8,7 +8,7 @@ use serde::{Deserialize, Serialize};
 pub type Blake3Digest32 = [u8; 32];
 
 /// Hash digest
-#[derive(Clone, Copy, Debug, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq)]
 pub enum Digest {
     Blake3Digest32(Blake3Digest32),
 }
@@ -17,7 +17,7 @@ pub enum Digest {
 pub type ChaCha20Key = [u8; 32];
 
 /// Symmetric cryptographic key
-#[derive(Clone, Copy, Debug, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq)]
 pub enum SymKey {
     ChaCha20Key(ChaCha20Key),
 }
