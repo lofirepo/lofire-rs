@@ -2,6 +2,7 @@
 //!
 
 use serde::{Deserialize, Serialize};
+use std::cmp::min;
 use std::path::Path;
 use std::sync::{Arc, RwLock};
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -105,7 +106,7 @@ impl Store {
         )
     }
 
-    pub fn pin(&self, object_id: ObjectId, add: bool) -> Result<(), Error> {
+    pub fn pin(&self, object_id: &ObjectId, add: bool) -> Result<(), Error> {
         let lock = self.environment.read().unwrap();
         let mut writer = lock.write().unwrap();
         let obj_id_ser = serde_bare::to_vec(&object_id).unwrap();
@@ -167,13 +168,16 @@ impl Store {
         Ok(())
     }
 
-    pub fn has_been_synced(&self, object_id: ObjectId) -> Result<(), Error> {
+    pub fn has_been_synced(&self, object_id: &ObjectId, when: Option<u32>) -> Result<(), Error> {
         let lock = self.environment.read().unwrap();
         let mut writer = lock.write().unwrap();
         let obj_id_ser = serde_bare::to_vec(&object_id).unwrap();
         let meta_ser = self.meta_store.get(&writer, obj_id_ser.clone()).unwrap();
         let mut meta;
-        let now = Self::now_timestamp();
+        let now = match when {
+            None => Self::now_timestamp(),
+            Some(w) => w,
+        };
         // get the meta. if no meta, it is ok, we will create it after (with pin:false and synced:true)
         // if already synced, return
         // update the meta with last_used:now and synced:true
@@ -195,6 +199,7 @@ impl Store {
 
                 if !meta.pin {
                     // we add an entry to recently_used_store with now
+                    println!("adding to LRU");
                     self.add_to_LRU(&mut writer, &obj_id_ser, &now).unwrap();
                 }
             }
@@ -203,7 +208,9 @@ impl Store {
                     pin: false,
                     synced: true,
                     last_used: now,
-                }
+                };
+                println!("adding to LRU also");
+                self.add_to_LRU(&mut writer, &obj_id_ser, &now).unwrap();
             }
         }
         let new_meta_ser = serde_bare::to_vec(&meta).unwrap();
@@ -292,37 +299,50 @@ impl Store {
                     .put(&mut writer, expiry, &Value::Blob(obj_id_ser.as_slice()))
                     .unwrap();
             }
-            _ => (),
+            _ => {}
         }
         writer.commit().unwrap();
 
         obj_id
     }
 
-    pub fn get_del(&self, object_id: &ObjectId) -> Result<Object, StoreError> {
+    pub fn del(&self, object_id: &ObjectId) -> Result<(Object, usize), StoreError> {
         let lock = self.environment.read().unwrap();
         let mut writer = lock.write().unwrap();
         let obj_id_ser = serde_bare::to_vec(&object_id).unwrap();
-        let obj_ser = self.main_store.get(&writer, obj_id_ser.clone()).unwrap();
-        let obj = serde_bare::from_slice::<Object>(&obj_ser.unwrap().to_bytes().unwrap());
-        let res = self.main_store.delete(&mut writer, obj_id_ser);
-        writer.commit().unwrap();
-        match res {
-            Err(e) => Err(e),
-            Ok(()) => match obj {
-                Ok(o) => Ok(o),
-                Err(e) => Err(StoreError::FileInvalid),
-            },
+        // retrieving the object itself (we need the expiry)
+        let obj_ser = self.main_store.get(&writer, obj_id_ser.clone())?;
+        if obj_ser.is_none() {
+            return Err(StoreError::FileInvalid); //FIXME with propoer Error type
         }
-    }
+        let slice = obj_ser.unwrap().to_bytes().unwrap();
+        let obj = serde_bare::from_slice::<Object>(&slice).unwrap(); //FIXME propagate error?
+        let meta_res = self.meta_store.get(&writer, obj_id_ser.clone())?;
+        if meta_res.is_some() {
+            let meta = serde_bare::from_slice::<ObjectMeta>(&meta_res.unwrap().to_bytes().unwrap())
+                .unwrap();
+            if meta.last_used != 0 {
+                self.remove_from_LRU(&mut writer, &obj_id_ser.clone(), &meta.last_used)?;
+            }
+            // removing the meta
+            self.meta_store.delete(&mut writer, obj_id_ser.clone())?;
+        }
+        // deleting object from main_store
+        self.main_store.delete(&mut writer, obj_id_ser.clone())?;
+        // removing objectId from expiry_store, if any expiry
+        match obj.get_expiry() {
+            Some(expiry) => {
+                self.expiry_store.delete(
+                    &mut writer,
+                    expiry,
+                    &Value::Blob(obj_id_ser.clone().as_slice()),
+                )?;
+            }
+            _ => {}
+        }
 
-    pub fn del(&self, object_id: &ObjectId) -> Result<(), StoreError> {
-        let lock = self.environment.read().unwrap();
-        let mut writer = lock.write().unwrap();
-        let obj_id_ser = serde_bare::to_vec(&object_id).unwrap();
-        let res = self.main_store.delete(&mut writer, obj_id_ser);
         writer.commit().unwrap();
-        res
+        Ok((obj, slice.len()))
     }
 
     pub fn remove_expired(&self) -> Result<(), Error> {
@@ -341,8 +361,68 @@ impl Store {
                 self.del(&obj_id).unwrap();
             }
         }
-
         Ok(())
+    }
+
+    pub fn get_valid_value_size(size: usize) -> usize {
+        const MIN_SIZE: usize = 4072;
+        const PAGE_SIZE: usize = 4096;
+        const HEADER: usize = PAGE_SIZE - MIN_SIZE;
+        const MAX_FACTOR: usize = 512;
+        min(
+            ((size + HEADER) as f32 / PAGE_SIZE as f32).ceil() as usize,
+            MAX_FACTOR,
+        ) * PAGE_SIZE
+            - HEADER
+    }
+
+    // let's the caller make some room on disk.
+    // removes objects in the store, until the total amount of data removed is at least equal to size,
+    // or the LRU list is empty.
+    pub fn remove_least_used(&self, size: usize) -> usize {
+        let lock = self.environment.read().unwrap();
+        let reader = lock.read().unwrap();
+
+        let mut iter = self.recently_used_store.iter_start(&reader).unwrap();
+
+        let mut total: usize = 0;
+
+        while let Some(Ok(entry)) = iter.next() {
+            let obj_id =
+                serde_bare::from_slice::<ObjectId>(entry.1.to_bytes().unwrap().as_slice()).unwrap();
+            let obj = self.del(&obj_id).unwrap();
+            println!("removed {:?}", obj_id);
+            total += obj.1;
+            if total >= size {
+                break;
+            }
+        }
+        total
+    }
+
+    fn list_all(&self) {
+        let lock = self.environment.read().unwrap();
+        let reader = lock.read().unwrap();
+        println!("MAIN");
+        let mut iter = self.main_store.iter_start(&reader).unwrap();
+        while let Some(Ok(entry)) = iter.next() {
+            println!("{:?} {:?}", entry.0, entry.1)
+        }
+        println!("META");
+        let mut iter2 = self.meta_store.iter_start(&reader).unwrap();
+        while let Some(Ok(entry)) = iter2.next() {
+            println!("{:?} {:?}", entry.0, entry.1)
+        }
+        println!("EXPIRY");
+        let mut iter3 = self.expiry_store.iter_start(&reader).unwrap();
+        while let Some(Ok(entry)) = iter3.next() {
+            println!("{:?} {:?}", entry.0, entry.1)
+        }
+        println!("LRU");
+        let mut iter4 = self.recently_used_store.iter_start(&reader).unwrap();
+        while let Some(Ok(entry)) = iter4.next() {
+            println!("{:?} {:?}", entry.0, entry.1)
+        }
     }
 }
 #[cfg(test)]
@@ -358,6 +438,100 @@ mod test {
     #[allow(unused_imports)]
     use std::{fs, thread};
     use tempfile::Builder;
+
+    #[test]
+    pub fn test_remove_least_used() {
+        let path_str = "test-env";
+        let root = Builder::new().prefix(path_str).tempdir().unwrap();
+        let key: [u8; 32] = [0; 32];
+        fs::create_dir_all(root.path()).unwrap();
+        println!("{}", root.path().to_str().unwrap());
+        let store = Store::open(root.path(), key);
+        let mut now = Store::now_timestamp();
+        now -= 200;
+        // TODO: fix the LMDB bug that is triggered with x max set to 86 !!!
+        for x in 1..85 {
+            let obj = ObjectV0 {
+                children: Vec::new(),
+                deps: ObjectDeps::ObjectIdList(Vec::new()),
+                expiry: None,
+                content: vec![x; 10],
+            };
+            let obj_id = store.put(&Object::V0(obj.clone()));
+            println!("#{} -> objId {:?}", x, obj_id);
+            store
+                .has_been_synced(&obj_id, Some(now + x as u32))
+                .unwrap();
+        }
+
+        let ret = store.remove_least_used(200);
+        println!("removed {}", ret);
+        assert_eq!(ret, 208)
+
+        //store.list_all();
+    }
+
+    #[test]
+    pub fn test_pin() {
+        let path_str = "test-env";
+        let root = Builder::new().prefix(path_str).tempdir().unwrap();
+        let key: [u8; 32] = [0; 32];
+        fs::create_dir_all(root.path()).unwrap();
+        println!("{}", root.path().to_str().unwrap());
+        let store = Store::open(root.path(), key);
+        let mut now = Store::now_timestamp();
+        now -= 200;
+        // TODO: fix the LMDB bug that is triggered with x max set to 86 !!!
+        for x in 1..85 {
+            let obj = ObjectV0 {
+                children: Vec::new(),
+                deps: ObjectDeps::ObjectIdList(Vec::new()),
+                expiry: None,
+                content: vec![x; 10],
+            };
+            let obj_id = store.put(&Object::V0(obj.clone()));
+            println!("#{} -> objId {:?}", x, obj_id);
+            store.pin(&obj_id, true).unwrap();
+            store
+                .has_been_synced(&obj_id, Some(now + x as u32))
+                .unwrap();
+        }
+
+        let ret = store.remove_least_used(200);
+        println!("removed {}", ret);
+        assert_eq!(ret, 0);
+
+        store.list_all();
+    }
+
+    #[test]
+    pub fn test_get_valid_value_size() {
+        assert_eq!(Store::get_valid_value_size(0), 4072);
+        assert_eq!(Store::get_valid_value_size(2), 4072);
+        assert_eq!(Store::get_valid_value_size(4072), 4072);
+        assert_eq!(Store::get_valid_value_size(4072 + 1), 4072 + 4096);
+        assert_eq!(Store::get_valid_value_size(4072 + 4096), 4072 + 4096);
+        assert_eq!(
+            Store::get_valid_value_size(4072 + 4096 + 1),
+            4072 + 4096 + 4096
+        );
+        assert_eq!(
+            Store::get_valid_value_size(4072 + 4096 + 4096),
+            4072 + 4096 + 4096
+        );
+        assert_eq!(
+            Store::get_valid_value_size(4072 + 4096 + 4096 + 1),
+            4072 + 4096 + 4096 + 4096
+        );
+        assert_eq!(
+            Store::get_valid_value_size(4072 + 4096 * 511),
+            4072 + 4096 * 511
+        );
+        assert_eq!(
+            Store::get_valid_value_size(4072 + 4096 * 511 + 1),
+            4072 + 4096 * 511
+        );
+    }
 
     #[test]
     pub fn test_remove_expired() {
@@ -408,6 +582,8 @@ mod test {
         assert!(store.get(listObjId.get(5).unwrap()).is_err());
         assert!(store.get(listObjId.get(6).unwrap()).is_ok());
         assert!(store.get(listObjId.get(7).unwrap()).is_ok());
+
+        //store.list_all();
     }
 
     #[test]
