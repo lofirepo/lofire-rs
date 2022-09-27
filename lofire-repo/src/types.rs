@@ -73,7 +73,16 @@ pub struct ObjectV0 {
     pub content: ObjectContentV0,
 }
 
+impl ObjectV0 {
+    pub fn get_expiry(&self) -> Option<Timestamp> {
+        self.expiry
+    }
+}
+
 /// Immutable object with encrypted content
+#[impl_enum::with_methods {
+    pub fn get_expiry(&self) -> Option<Timestamp>
+}]
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 pub enum Object {
     V0(ObjectV0),
