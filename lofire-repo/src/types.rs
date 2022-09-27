@@ -70,7 +70,8 @@ pub struct ObjectV0 {
     ///                                        repo_pubkey + repo_secret)
     /// - key: BLAKE3 keyed hash (convergence_key, plain_object)
     /// - nonce: 0
-    pub content: ObjectContentV0,
+    #[serde(with = "serde_bytes")]
+    pub content: Vec<u8>,
 }
 
 impl ObjectV0 {
