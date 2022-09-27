@@ -277,8 +277,8 @@ impl Tree {
         self.root_key
     }
 
-    pub fn nodes(&self) -> Vec<Object> {
-        self.nodes
+    pub fn nodes(&self) -> &Vec<Object> {
+        &self.nodes
     }
 
     /// Get the ID of an Object
@@ -422,7 +422,7 @@ mod test {
         println!("nodes.len: {:?}", tree.nodes().len());
         println!("nodes: {:?}", tree.nodes());
         let mut i = 0;
-        for node in &tree.nodes() {
+        for node in tree.nodes() {
             println!("#{}: {:?}", i, Tree::object_id(node));
             i += 1;
         }
@@ -450,7 +450,7 @@ mod test {
         println!("nodes2.len: {:?}", tree2.nodes().len());
         println!("nodes2: {:?}", tree2.nodes());
         let mut i = 0;
-        for node in &tree2.nodes() {
+        for node in tree2.nodes() {
             println!("#{}: {:?}", i, Tree::object_id(node));
             i += 1;
         }
