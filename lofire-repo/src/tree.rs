@@ -16,6 +16,16 @@ pub const EMPTY_OBJECT_SIZE: usize = 12;
 pub const OBJECT_ID_SIZE: usize = 33;
 /// Size of serialized SymKey
 pub const OBJECT_KEY_SIZE: usize = 33;
+/// Size of serialized Oject with deps reference.
+pub const EMPTY_ROOT_SIZE_DEPSREF: usize = 77;
+/// Extra size needed if depsRef used instead of deps list.
+pub const DEPSREF_OVERLOAD: usize = EMPTY_ROOT_SIZE_DEPSREF - EMPTY_OBJECT_SIZE;
+/// Varint extra bytes when reaching the maximum value we will ever use
+pub const BIG_VARINT_EXTRA: usize = 3;
+/// Varint extra bytes when reaching the maximum size of data byte arrays.
+pub const DATA_VARINT_EXTRA: usize = 4;
+/// Max extra space used by the deps list
+pub const MAX_DEPS_SIZE: usize = 8 * OBJECT_ID_SIZE;
 
 pub struct Tree {
     /// ID of root object
@@ -177,7 +187,7 @@ impl Tree {
 
         // create Objects by chunking + encrypting content
         let object_size = Store::get_valid_value_size(max_object_size);
-        let data_chunk_size = object_size - EMPTY_OBJECT_SIZE;
+        let data_chunk_size = object_size - EMPTY_OBJECT_SIZE - DATA_VARINT_EXTRA;
 
         let mut nodes: Vec<(Object, SymKey)> = vec![];
         let conv_key = convergence_key(repo_pubkey, repo_secret);
@@ -197,9 +207,8 @@ impl Tree {
 
         // internal nodes
         // arity: max number of ObjectRefs that fit inside an InternalNode Object within the object_size limit
-        let max_deps_size = 8 * OBJECT_ID_SIZE;
-        let arity: usize =
-            (object_size - EMPTY_OBJECT_SIZE - max_deps_size) / (OBJECT_ID_SIZE + OBJECT_KEY_SIZE);
+        let arity: usize = (object_size - EMPTY_OBJECT_SIZE - BIG_VARINT_EXTRA * 2 - MAX_DEPS_SIZE)
+            / (OBJECT_ID_SIZE + OBJECT_KEY_SIZE);
         let deps = make_deps(root_deps, object_size, repo_pubkey, repo_secret);
         let mut parents = make_tree(nodes.as_slice(), &conv_key, &deps, expiry, arity);
         nodes.append(&mut parents);
@@ -397,10 +406,19 @@ mod test {
     use crate::types::*;
     use lofire::types::*;
 
+    // Those constants are calculated with Store::get_max_value_size
+
+    /// Maximum arity of branch containing max number of leaves
+    const MAX_ARITY_LEAVES: usize = 31774;
+    /// Maximum arity of root branch
+    const MAX_ARITY_ROOT: usize = 31770;
+    /// Maximum data that can fit in object.content
+    const MAX_DATA_PAYLOAD_SIZE: usize = 2097112;
+
     #[test]
     pub fn test_tree() {
-        let content: Vec<u8> =
-            Vec::from("AAABBBCCCDDDEEEFFFGGGHHHIIIJJJKKKLLLMMMNNNOOOPPPQQQRRRSSSTTT");
+        let content: Vec<u8> = vec![100; 20 * 4096];
+        //Vec::from("AAABBBCCCDDDEEEFFFGGGHHHIIIJJJKKKLLLMMMNNNOOOPPPQQQRRRSSSTTT");
         let deps: Vec<ObjectId> = vec![Digest::Blake3Digest32([9; 32])];
         let expiry = Some(2342);
         let max_object_size = 0;
@@ -464,6 +482,40 @@ mod test {
     }
 
     #[test]
+    pub fn test_depth_1() {
+        // checks that a content that fits the root node, will not be chunked into children nodes
+
+        let content: Vec<u8> = vec![100; MAX_DATA_PAYLOAD_SIZE];
+
+        let deps: Vec<ObjectId> = vec![Digest::Blake3Digest32([9; 32])];
+        let expiry = Some(2342);
+        let max_object_size = Store::get_max_value_size();
+
+        let repo_secret = SymKey::ChaCha20Key([0; 32]);
+        let repo_pubkey = PubKey::Curve25519PubKey([1; 32]);
+
+        let tree = Tree::new(
+            content.clone(),
+            deps,
+            expiry,
+            max_object_size,
+            repo_pubkey,
+            repo_secret,
+        );
+
+        println!("root_id: {:?}", tree.root_id());
+        println!("root_key: {:?}", tree.root_key().unwrap());
+        println!("nodes.len: {:?}", tree.nodes().len());
+        println!("nodes: {:?}", tree.nodes());
+        let mut i = 0;
+        for node in tree.nodes() {
+            println!("#{}: {:?}", i, Tree::object_id(node));
+            i += 1;
+        }
+        assert_eq!(tree.nodes().len(), 1)
+    }
+
+    #[test]
     pub fn test_object_size() {
         let id = Digest::Blake3Digest32([0u8; 32]);
         let key = SymKey::ChaCha20Key([0u8; 32]);
@@ -474,8 +526,14 @@ mod test {
         let two_keys = ObjectContentV0::InternalNode(vec![key, key]);
         let two_keys_ser = serde_bare::to_vec(&two_keys).unwrap();
 
+        let max_keys = ObjectContentV0::InternalNode(vec![key; MAX_ARITY_LEAVES]);
+        let max_keys_ser = serde_bare::to_vec(&max_keys).unwrap();
+
         let data = ObjectContentV0::DataChunk(vec![]);
         let data_ser = serde_bare::to_vec(&data).unwrap();
+
+        let data_full = ObjectContentV0::DataChunk(vec![0; MAX_DATA_PAYLOAD_SIZE]);
+        let data_full_ser = serde_bare::to_vec(&data_full).unwrap();
 
         let leaf_empty = Object::V0(ObjectV0 {
             children: vec![],
@@ -484,6 +542,31 @@ mod test {
             content: data_ser.clone(),
         });
         let leaf_empty_ser = serde_bare::to_vec(&leaf_empty).unwrap();
+
+        let leaf_full_data = Object::V0(ObjectV0 {
+            children: vec![],
+            deps: ObjectDeps::ObjectIdList(vec![]),
+            expiry: Some(2342),
+            content: data_full_ser.clone(),
+        });
+        let leaf_full_data_ser = serde_bare::to_vec(&leaf_full_data).unwrap();
+
+        let root_depsref = Object::V0(ObjectV0 {
+            children: vec![],
+            deps: ObjectDeps::DepListRef(ObjectRef { id: id, key: key }),
+            expiry: Some(2342),
+            content: data_ser.clone(),
+        });
+
+        let root_depsref_ser = serde_bare::to_vec(&root_depsref).unwrap();
+
+        let internal_max = Object::V0(ObjectV0 {
+            children: vec![id; MAX_ARITY_LEAVES],
+            deps: ObjectDeps::ObjectIdList(vec![]),
+            expiry: Some(2342),
+            content: max_keys_ser.clone(),
+        });
+        let internal_max_ser = serde_bare::to_vec(&internal_max).unwrap();
 
         let internal_one = Object::V0(ObjectV0 {
             children: vec![id; 1],
@@ -517,8 +600,62 @@ mod test {
         });
         let root_two_ser = serde_bare::to_vec(&root_two).unwrap();
 
+        println!(
+            "range of valid value sizes {} {}",
+            Store::get_valid_value_size(0),
+            Store::get_max_value_size()
+        );
+
+        println!(
+            "max_data_payload_of_object: {}",
+            Store::get_max_value_size() - EMPTY_OBJECT_SIZE - DATA_VARINT_EXTRA
+        );
+
+        println!(
+            "max_data_payload_depth_1: {}",
+            Store::get_max_value_size() - EMPTY_OBJECT_SIZE - DATA_VARINT_EXTRA - MAX_DEPS_SIZE
+        );
+
+        println!(
+            "max_data_payload_depth_2: {}",
+            MAX_ARITY_ROOT * MAX_DATA_PAYLOAD_SIZE
+        );
+
+        println!(
+            "max_data_payload_depth_3: {}",
+            MAX_ARITY_ROOT * MAX_ARITY_LEAVES * MAX_DATA_PAYLOAD_SIZE
+        );
+
+        let max_arity_leaves =
+            (Store::get_max_value_size() - EMPTY_OBJECT_SIZE - BIG_VARINT_EXTRA * 2)
+                / (OBJECT_ID_SIZE + OBJECT_KEY_SIZE);
+        println!("max_arity_leaves: {}", max_arity_leaves);
+        assert_eq!(max_arity_leaves, MAX_ARITY_LEAVES);
+        assert_eq!(
+            Store::get_max_value_size() - EMPTY_OBJECT_SIZE - DATA_VARINT_EXTRA,
+            MAX_DATA_PAYLOAD_SIZE
+        );
+        let max_arity_root = (Store::get_max_value_size()
+            - EMPTY_OBJECT_SIZE
+            - MAX_DEPS_SIZE
+            - BIG_VARINT_EXTRA * 2)
+            / (OBJECT_ID_SIZE + OBJECT_KEY_SIZE);
+        println!("max_arity_root: {}", max_arity_root);
+        assert_eq!(max_arity_root, MAX_ARITY_ROOT);
+        println!("store_max_value_size: {}", leaf_full_data_ser.len());
+        assert_eq!(leaf_full_data_ser.len(), Store::get_max_value_size());
         println!("leaf_empty: {}", leaf_empty_ser.len());
         assert_eq!(leaf_empty_ser.len(), EMPTY_OBJECT_SIZE);
+        println!("root_depsref: {}", root_depsref_ser.len());
+        assert_eq!(root_depsref_ser.len(), EMPTY_ROOT_SIZE_DEPSREF);
+        println!("internal_max: {}", internal_max_ser.len());
+        assert_eq!(
+            internal_max_ser.len(),
+            EMPTY_OBJECT_SIZE
+                + BIG_VARINT_EXTRA * 2
+                + MAX_ARITY_LEAVES * (OBJECT_ID_SIZE + OBJECT_KEY_SIZE)
+        );
+        assert!(internal_max_ser.len() < Store::get_max_value_size());
         println!("internal_one: {}", internal_one_ser.len());
         assert_eq!(
             internal_one_ser.len(),
