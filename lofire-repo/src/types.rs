@@ -19,23 +19,20 @@ pub struct ObjectRef {
 /// Internal node of a Merkle tree
 pub type InternalNode = Vec<SymKey>;
 
-/// Data chunk at a leaf of a Merkle tree
-pub type DataChunk = Vec<u8>;
-
 /// Content of ObjectV0: a Merkle tree node
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub enum ObjectContentV0 {
     /// Internal node with references to children
     InternalNode(InternalNode),
 
-    /// Leaf node with encrypted data chunk
     #[serde(with = "serde_bytes")]
-    DataChunk(DataChunk),
+    DataChunk(Vec<u8>),
 }
 
 /// List of ObjectId dependencies as encrypted Object content
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub enum DepList {
-    DepListV0(Vec<ObjectId>),
+    V0(Vec<ObjectId>),
 }
 
 /// Dependencies of an Object
@@ -44,7 +41,7 @@ pub enum ObjectDeps {
     /// List of Object IDs (max. 8),
     ObjectIdList(Vec<ObjectId>),
 
-    /// Reference to an Object that contains an DepList
+    /// Reference to an Object that contains a DepList
     DepListRef(ObjectRef),
 }
 
@@ -64,11 +61,12 @@ pub struct ObjectV0 {
     /// when the object should be deleted by all replicas
     pub expiry: Option<Timestamp>,
 
-    /// Object content: a Merkle tree node
+    /// Encrypted ObjectContentV0
+    ///
     /// Encrypted using convergent encryption with ChaCha20:
     /// - convergence_key: BLAKE3 derive_key ("LoFiRe Data BLAKE3 key",
     ///                                        repo_pubkey + repo_secret)
-    /// - key: BLAKE3 keyed hash (convergence_key, plain_object)
+    /// - key: BLAKE3 keyed hash (convergence_key, plain_object_content)
     /// - nonce: 0
     #[serde(with = "serde_bytes")]
     pub content: Vec<u8>,
@@ -209,7 +207,7 @@ pub enum Branch {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct AddMembersV0 {
     /// Members to add, with permissions
-    pub members: Vec<Member>,
+    pub members: Vec<MemberV0>,
 
     /// New quorum
     pub quorum: Option<HashMap<CommitType, u32>>,
@@ -229,22 +227,29 @@ pub enum AddMembers {
     V0(AddMembersV0),
 }
 
+/// ObjectRef for EndOfBranch
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub enum PlainOrEncryptedObjectRef {
+    Plain(ObjectRef),
+    Encrypted(Vec<u8>),
+}
+
 /// End of branch
 ///
 /// No more commits accepted afterwards, only acks of this commit
 /// May reference a fork where the branch continues
 /// with possibly different members, permissions, validation rules.
-#[derive(Clone, Copy, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct EndOfBranchV0 {
     /// (Encrypted) reference to forked branch (optional)
-    pub fork: Option<ObjectRef>,
+    pub fork: Option<PlainOrEncryptedObjectRef>,
 
     /// Expiry time when all commits in the branch should be deleted
     pub expiry: Timestamp,
 }
 
 /// End of branch
-#[derive(Clone, Copy, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub enum EndOfBranch {
     V0(EndOfBranchV0),
 }
@@ -359,11 +364,13 @@ pub struct FileV0 {
 }
 
 /// A file stored in an Object
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub enum File {
     V0(FileV0),
 }
 
 /// Immutable data stored encrypted in a Merkle tree
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub enum Data {
     Commit(Commit),
     CommitBody(CommitBody),
