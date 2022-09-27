@@ -168,6 +168,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "heck"
+version = "0.4.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2540771e65fc8cb83cd6e8a237f70c319bd5c29f78ed1084ba5d50eeac86f7f9"
+
+[[package]]
 name = "id-arena"
 version = "2.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -181,6 +187,18 @@ checksum = "e14ddfc70884202db2244c223200c204c2bda1bc6e0998d11b5e024d657209e6"
 dependencies = [
  "unicode-bidi",
  "unicode-normalization",
+]
+
+[[package]]
+name = "impl-enum"
+version = "0.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ab90bad167f9ec05c07777e07aaa49e01d0c525b2ef1a00d96a972db8bb8b561"
+dependencies = [
+ "heck",
+ "proc-macro2",
+ "quote",
+ "syn",
 ]
 
 [[package]]
@@ -216,7 +234,7 @@ checksum = "c0f80d65747a3e43d1596c7c5492d95d5edddaabd45a7fcdb02b95f644164966"
 [[package]]
 name = "lmdb-crypto-rs"
 version = "0.14.0"
-source = "git+https://github.com/p2pcollab/lmdb-rs.git?branch=master#620a32d8bcc21a3a763db3b42c9441627db19d80"
+source = "git+https://github.com/p2pcollab/lmdb-rs.git?branch=master#7062768d11466fef5587c841a5d30346aff5ad81"
 dependencies = [
  "bitflags",
  "byteorder",
@@ -227,7 +245,7 @@ dependencies = [
 [[package]]
 name = "lmdb-crypto-sys"
 version = "0.11.2"
-source = "git+https://github.com/p2pcollab/lmdb-rs.git?branch=master#620a32d8bcc21a3a763db3b42c9441627db19d80"
+source = "git+https://github.com/p2pcollab/lmdb-rs.git?branch=master#7062768d11466fef5587c841a5d30346aff5ad81"
 dependencies = [
  "cc",
  "libc",
@@ -265,6 +283,7 @@ dependencies = [
  "blake3",
  "chacha20",
  "debug_print",
+ "impl-enum",
  "lofire",
  "rkv",
  "serde",
@@ -320,9 +339,9 @@ checksum = "1df8c4ec4b0627e53bdf214615ad287367e482558cf84b109250b37464dc03ae"
 
 [[package]]
 name = "proc-macro2"
-version = "1.0.43"
+version = "1.0.44"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0a2ca2c61bc9f3d74d2886294ab7b9853abd9c1ad903a3ac7815c58989bb7bab"
+checksum = "7bd7356a8122b6c4a24a82b278680c73357984ca2fc79a0f9fa6dea7dced7c58"
 dependencies = [
  "unicode-ident",
 ]
@@ -357,7 +376,7 @@ dependencies = [
 [[package]]
 name = "rkv"
 version = "0.18.0"
-source = "git+https://github.com/p2pcollab/rkv.git?branch=main#e1b0cc520d5faa11ea4987012bc11f2b6a8b312f"
+source = "git+https://github.com/p2pcollab/rkv.git?branch=main#94e3b8e30b73f2c15f0f1d7c1ac84b97372ea7c3"
 dependencies = [
  "arrayref",
  "bincode",
@@ -422,9 +441,9 @@ checksum = "6bdef32e8150c2a081110b42772ffe7d7c9032b606bc226c8260fd97e0976601"
 
 [[package]]
 name = "syn"
-version = "1.0.100"
+version = "1.0.101"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "52205623b1b0f064a4e71182c3b18ae902267282930c6d5462c91b859668426e"
+checksum = "e90cde112c4b9690b8cbe810cba9ddd8bc1d7472e2cae317b69e9438c1cba7d2"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -447,18 +466,18 @@ dependencies = [
 
 [[package]]
 name = "thiserror"
-version = "1.0.35"
+version = "1.0.36"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c53f98874615aea268107765aa1ed8f6116782501d18e53d08b471733bea6c85"
+checksum = "0a99cb8c4b9a8ef0e7907cd3b617cc8dc04d571c4e73c8ae403d80ac160bb122"
 dependencies = [
  "thiserror-impl",
 ]
 
 [[package]]
 name = "thiserror-impl"
-version = "1.0.35"
+version = "1.0.36"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f8b463991b4eab2d801e724172285ec4195c650e8ec79b149e6c2a8e6dd3f783"
+checksum = "3a891860d3c8d66fec8e73ddb3765f90082374dbaaa833407b904a94f1a7eb43"
 dependencies = [
  "proc-macro2",
  "quote",

@@ -8,7 +8,7 @@ use serde::{Deserialize, Serialize};
 pub type Blake3Digest32 = [u8; 32];
 
 /// Hash digest
-#[derive(Clone, Copy, Debug, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq)]
 pub enum Digest {
     Blake3Digest32(Blake3Digest32),
 }
@@ -17,7 +17,7 @@ pub enum Digest {
 pub type ChaCha20Key = [u8; 32];
 
 /// Symmetric cryptographic key
-#[derive(Clone, Copy, Debug, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq)]
 pub enum SymKey {
     ChaCha20Key(ChaCha20Key),
 }
@@ -51,6 +51,8 @@ pub enum Signature {
 
 /// Timestamp: absolute time in minutes since 2022-02-22 22:22 UTC
 pub type Timestamp = u32;
+
+pub const EPOCH_AS_UNIX_TIMESTAMP: u64 = 1645568520;
 
 /// Relative time (e.g. delay from current time)
 #[derive(Clone, Copy, Debug, Serialize, Deserialize)]

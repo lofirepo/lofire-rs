@@ -7,7 +7,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
 /// Object reference
-#[derive(Clone, Copy, Debug, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq)]
 pub struct ObjectRef {
     /// Object ID
     pub id: ObjectId,
@@ -36,7 +36,7 @@ pub enum DepList {
 }
 
 /// Dependencies of an Object
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 pub enum ObjectDeps {
     /// List of Object IDs (max. 8),
     ObjectIdList(Vec<ObjectId>),
@@ -49,7 +49,7 @@ pub enum ObjectDeps {
 ///
 /// Data is chunked and stored in a Merkle tree.
 /// An Object stores a Merkle tree node.
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 pub struct ObjectV0 {
     /// Objects IDs for child nodes in the Merkle tree
     pub children: Vec<ObjectId>,
@@ -72,8 +72,17 @@ pub struct ObjectV0 {
     pub content: Vec<u8>,
 }
 
+impl ObjectV0 {
+    pub fn get_expiry(&self) -> Option<Timestamp> {
+        self.expiry
+    }
+}
+
 /// Immutable object with encrypted content
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[impl_enum::with_methods {
+    pub fn get_expiry(&self) -> Option<Timestamp>
+}]
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 pub enum Object {
     V0(ObjectV0),
 }
