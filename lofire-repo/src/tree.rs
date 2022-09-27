@@ -540,16 +540,16 @@ mod test {
             EMPTY_OBJECT_SIZE + 8 * OBJECT_ID_SIZE + 2 * OBJECT_ID_SIZE + 2 * OBJECT_KEY_SIZE
         );
 
-        let object_size_1 = 4096 * 1 - VALUE_HEADER_SIZE;
-        let object_size_512 = 4096 * MAX_PAGES_PER_VALUE - VALUE_HEADER_SIZE;
-        let arity_1: usize =
-            (object_size_1 - 8 * OBJECT_ID_SIZE) / (OBJECT_ID_SIZE + OBJECT_KEY_SIZE);
-        let arity_512: usize =
-            (object_size_512 - 8 * OBJECT_ID_SIZE) / (OBJECT_ID_SIZE + OBJECT_KEY_SIZE);
+        // let object_size_1 = 4096 * 1 - VALUE_HEADER_SIZE;
+        // let object_size_512 = 4096 * MAX_PAGES_PER_VALUE - VALUE_HEADER_SIZE;
+        // let arity_1: usize =
+        //     (object_size_1 - 8 * OBJECT_ID_SIZE) / (OBJECT_ID_SIZE + OBJECT_KEY_SIZE);
+        // let arity_512: usize =
+        //     (object_size_512 - 8 * OBJECT_ID_SIZE) / (OBJECT_ID_SIZE + OBJECT_KEY_SIZE);
 
-        println!("1-page object_size: {}", object_size_1);
-        println!("512-page object_size: {}", object_size_512);
-        println!("max arity of 1-page object: {}", arity_1);
-        println!("max arity of 512-page object: {}", arity_512);
+        // println!("1-page object_size: {}", object_size_1);
+        // println!("512-page object_size: {}", object_size_512);
+        // println!("max arity of 1-page object: {}", arity_1);
+        // println!("max arity of 512-page object: {}", arity_512);
     }
 }
