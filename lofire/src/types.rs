@@ -52,7 +52,7 @@ pub enum Signature {
 /// Timestamp: absolute time in minutes since 2022-02-22 22:22 UTC
 pub type Timestamp = u32;
 
-pub const EPOCH_LOFIRE_IN_UNIX_TIMEPSTAMP: u64 = 1645568520;
+pub const EPOCH_AS_UNIX_TIMESTAMP: u64 = 1645568520;
 
 /// Relative time (e.g. delay from current time)
 #[derive(Clone, Copy, Debug, Serialize, Deserialize)]

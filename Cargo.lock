@@ -282,8 +282,8 @@ version = "0.1.0"
 dependencies = [
  "blake3",
  "chacha20",
- "impl-enum",
  "debug_print",
+ "impl-enum",
  "lofire",
  "rkv",
  "serde",

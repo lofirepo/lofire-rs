@@ -20,15 +20,15 @@ use rkv::{
 use serde_bare::error::Error;
 
 pub struct Store {
-    // the main store where all the repo objects are stored
+    /// the main store where all the repo objects are stored
     main_store: SingleStore<LmdbDatabase>,
-    // store for the pin boolean, recently_used timestamp, and synced boolean
+    /// store for the pin boolean, recently_used timestamp, and synced boolean
     meta_store: SingleStore<LmdbDatabase>,
-    // store for the expiry timestamp
+    /// store for the expiry timestamp
     expiry_store: MultiIntegerStore<LmdbDatabase, u32>,
-    // store for the LRU list
+    /// store for the LRU list
     recently_used_store: MultiIntegerStore<LmdbDatabase, u32>,
-    // the opened environment so we can create new transactions
+    /// the opened environment so we can create new transactions
     environment: Arc<RwLock<Rkv<LmdbEnvironment>>>,
 }
 
@@ -41,17 +41,20 @@ struct ObjectMeta {
 }
 
 impl Store {
+    /// returns the Lofire Timestamp of now.
     fn now_timestamp() -> Timestamp {
         ((SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .unwrap()
             .as_secs()
-            - EPOCH_LOFIRE_IN_UNIX_TIMEPSTAMP)
+            - EPOCH_AS_UNIX_TIMESTAMP)
             / 60)
             .try_into()
             .unwrap()
     }
 
+    /// Opens the store and returns a Store object that should be kept and used to call put/get/delete/pin
+    /// The key is the encryption key for the data at rest.
     pub fn open<'a>(path: &Path, key: [u8; 32]) -> Store {
         let mut manager = Manager::<LmdbEnvironment>::singleton().write().unwrap();
         let shared_rkv = manager
@@ -80,33 +83,20 @@ impl Store {
         }
     }
 
-    fn remove_from_LRU(
-        &self,
-        writer: &mut Writer<LmdbRwTransaction>,
-        obj_id_ser: &Vec<u8>,
-        time: &Timestamp,
-    ) -> Result<(), StoreError> {
-        self.recently_used_store
-            .delete(writer, *time, &Value::Blob(obj_id_ser.as_slice()))
+    /// Pins the object
+    pub fn pin(&self, object_id: &ObjectId) -> Result<(), Error> {
+        self.set_pin(object_id, true)
     }
 
-    fn add_to_LRU(
-        &self,
-        writer: &mut Writer<LmdbRwTransaction>,
-        obj_id_ser: &Vec<u8>,
-        time: &Timestamp,
-    ) -> Result<(), StoreError> {
-        let mut flag = LmdbWriteFlags::empty();
-        flag.set(WriteFlags::APPEND_DUP, true);
-        self.recently_used_store.put_with_flags(
-            writer,
-            *time,
-            &Value::Blob(obj_id_ser.as_slice()),
-            flag,
-        )
+    /// Unpins the object
+    pub fn unpin(&self, object_id: &ObjectId) -> Result<(), Error> {
+        self.set_pin(object_id, false)
     }
 
-    pub fn pin(&self, object_id: &ObjectId, add: bool) -> Result<(), Error> {
+    /// Sets the pin for that Object. if add is true, will add the pin. if false, will remove the pin.
+    /// A pin on an object prevents it from being removed when the store is making some disk space by using the LRU.
+    /// A pin does not override the expiry. If expiry is set and is reached, the obejct will be deleted, no matter what.
+    pub fn set_pin(&self, object_id: &ObjectId, add: bool) -> Result<(), Error> {
         let lock = self.environment.read().unwrap();
         let mut writer = lock.write().unwrap();
         let obj_id_ser = serde_bare::to_vec(&object_id).unwrap();
@@ -132,11 +122,11 @@ impl Store {
                 if meta.synced {
                     if add {
                         // we remove the previous timestamp (last_used) from recently_used_store
-                        self.remove_from_LRU(&mut writer, &obj_id_ser, &meta.last_used)
+                        self.remove_from_lru(&mut writer, &obj_id_ser, &meta.last_used)
                             .unwrap();
                     } else {
                         // we add an entry to recently_used_store with last_used
-                        self.add_to_LRU(&mut writer, &obj_id_ser, &meta.last_used)
+                        self.add_to_lru(&mut writer, &obj_id_ser, &meta.last_used)
                             .unwrap();
                     }
                 }
@@ -168,6 +158,9 @@ impl Store {
         Ok(())
     }
 
+    /// the broker calls this method when the object has been retrieved/synced by enough peers and it
+    /// can now be included in the LRU for potential garbage collection.
+    /// If this method has not been called on an object, it will be kept in the store and will not enter LRU.
     pub fn has_been_synced(&self, object_id: &ObjectId, when: Option<u32>) -> Result<(), Error> {
         let lock = self.environment.read().unwrap();
         let mut writer = lock.write().unwrap();
@@ -200,7 +193,7 @@ impl Store {
                 if !meta.pin {
                     // we add an entry to recently_used_store with now
                     println!("adding to LRU");
-                    self.add_to_LRU(&mut writer, &obj_id_ser, &now).unwrap();
+                    self.add_to_lru(&mut writer, &obj_id_ser, &now).unwrap();
                 }
             }
             None => {
@@ -210,7 +203,7 @@ impl Store {
                     last_used: now,
                 };
                 println!("adding to LRU also");
-                self.add_to_LRU(&mut writer, &obj_id_ser, &now).unwrap();
+                self.add_to_lru(&mut writer, &obj_id_ser, &now).unwrap();
             }
         }
         let new_meta_ser = serde_bare::to_vec(&meta).unwrap();
@@ -227,6 +220,7 @@ impl Store {
         Ok(())
     }
 
+    /// Retrieves an object from the storage backend.
     pub fn get(&self, object_id: &ObjectId) -> Result<Object, StoreError> {
         let lock = self.environment.read().unwrap();
         let reader = lock.read().unwrap();
@@ -249,10 +243,10 @@ impl Store {
                             let now = Self::now_timestamp();
                             if !meta.pin {
                                 // we remove the previous timestamp (last_used) from recently_used_store
-                                self.remove_from_LRU(&mut writer, &obj_id_ser, &meta.last_used)
+                                self.remove_from_lru(&mut writer, &obj_id_ser, &meta.last_used)
                                     .unwrap();
                                 // we add an entry to recently_used_store with now
-                                self.add_to_LRU(&mut writer, &obj_id_ser, &now).unwrap();
+                                self.add_to_lru(&mut writer, &obj_id_ser, &now).unwrap();
                             }
                             // we save the new meta (with last_used:now)
                             meta.last_used = now;
@@ -279,6 +273,7 @@ impl Store {
         }
     }
 
+    /// Adds an object in the storage backend. The object is persisted to disk. Returns the ObjectId of the Object.
     pub fn put(&self, object: &Object) -> ObjectId {
         let obj_ser = serde_bare::to_vec(&object).unwrap();
 
@@ -306,6 +301,8 @@ impl Store {
         obj_id
     }
 
+    /// Removes the object from the storage backend. The removed object is returned so it can be inspected.
+    /// Also returned is the approximate size of of free space that was reclaimed.
     pub fn del(&self, object_id: &ObjectId) -> Result<(Object, usize), StoreError> {
         let lock = self.environment.read().unwrap();
         let mut writer = lock.write().unwrap();
@@ -322,7 +319,7 @@ impl Store {
             let meta = serde_bare::from_slice::<ObjectMeta>(&meta_res.unwrap().to_bytes().unwrap())
                 .unwrap();
             if meta.last_used != 0 {
-                self.remove_from_LRU(&mut writer, &obj_id_ser.clone(), &meta.last_used)?;
+                self.remove_from_lru(&mut writer, &obj_id_ser.clone(), &meta.last_used)?;
             }
             // removing the meta
             self.meta_store.delete(&mut writer, obj_id_ser.clone())?;
@@ -345,6 +342,7 @@ impl Store {
         Ok((obj, slice.len()))
     }
 
+    /// Removes all the objects that have expired. The broker should call this method periodically.
     pub fn remove_expired(&self) -> Result<(), Error> {
         let lock = self.environment.read().unwrap();
         let reader = lock.read().unwrap();
@@ -364,6 +362,7 @@ impl Store {
         Ok(())
     }
 
+    /// Returns a valid/optimal value size for the entries of the storage backend.
     pub fn get_valid_value_size(size: usize) -> usize {
         const MIN_SIZE: usize = 4072;
         const PAGE_SIZE: usize = 4096;
@@ -376,9 +375,9 @@ impl Store {
             - HEADER
     }
 
-    // let's the caller make some room on disk.
-    // removes objects in the store, until the total amount of data removed is at least equal to size,
-    // or the LRU list is empty.
+    /// Removes some objects that haven't been used for a while, reclaiming some room on disk.
+    /// The oldest are removed first, until the total amount of data removed is at least equal to size,
+    /// or the LRU list became empty. The approximate size of the storage space that was reclaimed is returned.
     pub fn remove_least_used(&self, size: usize) -> usize {
         let lock = self.environment.read().unwrap();
         let reader = lock.read().unwrap();
@@ -398,6 +397,32 @@ impl Store {
             }
         }
         total
+    }
+
+    fn remove_from_lru(
+        &self,
+        writer: &mut Writer<LmdbRwTransaction>,
+        obj_id_ser: &Vec<u8>,
+        time: &Timestamp,
+    ) -> Result<(), StoreError> {
+        self.recently_used_store
+            .delete(writer, *time, &Value::Blob(obj_id_ser.as_slice()))
+    }
+
+    fn add_to_lru(
+        &self,
+        writer: &mut Writer<LmdbRwTransaction>,
+        obj_id_ser: &Vec<u8>,
+        time: &Timestamp,
+    ) -> Result<(), StoreError> {
+        let mut flag = LmdbWriteFlags::empty();
+        flag.set(WriteFlags::APPEND_DUP, true);
+        self.recently_used_store.put_with_flags(
+            writer,
+            *time,
+            &Value::Blob(obj_id_ser.as_slice()),
+            flag,
+        )
     }
 
     fn list_all(&self) {
@@ -472,7 +497,7 @@ mod test {
     }
 
     #[test]
-    pub fn test_pin() {
+    pub fn test_set_pin() {
         let path_str = "test-env";
         let root = Builder::new().prefix(path_str).tempdir().unwrap();
         let key: [u8; 32] = [0; 32];
@@ -491,7 +516,7 @@ mod test {
             };
             let obj_id = store.put(&Object::V0(obj.clone()));
             println!("#{} -> objId {:?}", x, obj_id);
-            store.pin(&obj_id, true).unwrap();
+            store.set_pin(&obj_id, true).unwrap();
             store
                 .has_been_synced(&obj_id, Some(now + x as u32))
                 .unwrap();
