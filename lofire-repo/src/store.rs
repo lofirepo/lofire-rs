@@ -376,26 +376,23 @@ impl Store {
         Ok(())
     }
 
+    const MIN_SIZE: usize = 4072;
+    const PAGE_SIZE: usize = 4096;
+    const HEADER: usize = Self::PAGE_SIZE - Self::MIN_SIZE;
+    const MAX_FACTOR: usize = 512;
+
     /// Returns a valid/optimal value size for the entries of the storage backend.
     pub fn get_valid_value_size(size: usize) -> usize {
-        const MIN_SIZE: usize = 4072;
-        const PAGE_SIZE: usize = 4096;
-        const HEADER: usize = PAGE_SIZE - MIN_SIZE;
-        const MAX_FACTOR: usize = 512;
         min(
-            ((size + HEADER) as f32 / PAGE_SIZE as f32).ceil() as usize,
-            MAX_FACTOR,
-        ) * PAGE_SIZE
-            - HEADER
+            ((size + Self::HEADER) as f32 / Self::PAGE_SIZE as f32).ceil() as usize,
+            Self::MAX_FACTOR,
+        ) * Self::PAGE_SIZE
+            - Self::HEADER
     }
 
     /// Returns the maximum value size for the entries of the storage backend.
     pub fn get_max_value_size() -> usize {
-        const MIN_SIZE: usize = 4072;
-        const PAGE_SIZE: usize = 4096;
-        const HEADER: usize = PAGE_SIZE - MIN_SIZE;
-        const MAX_FACTOR: usize = 512;
-        MAX_FACTOR * PAGE_SIZE - HEADER
+        Self::MAX_FACTOR * Self::PAGE_SIZE - Self::HEADER
     }
 
     /// Removes some objects that haven't been used for a while, reclaiming some room on disk.

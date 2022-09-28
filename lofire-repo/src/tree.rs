@@ -542,6 +542,9 @@ mod test {
 
     #[test]
     pub fn test_object_size() {
+        let max_object_size = Store::get_max_value_size();
+        println!("max_object_size: {}", max_object_size);
+
         let id = Digest::Blake3Digest32([0u8; 32]);
         let key = SymKey::ChaCha20Key([0u8; 32]);
 
@@ -633,12 +636,12 @@ mod test {
 
         println!(
             "max_data_payload_of_object: {}",
-            Store::get_max_value_size() - EMPTY_OBJECT_SIZE - DATA_VARINT_EXTRA
+            max_object_size - EMPTY_OBJECT_SIZE - DATA_VARINT_EXTRA
         );
 
         println!(
             "max_data_payload_depth_1: {}",
-            Store::get_max_value_size() - EMPTY_OBJECT_SIZE - DATA_VARINT_EXTRA - MAX_DEPS_SIZE
+            max_object_size - EMPTY_OBJECT_SIZE - DATA_VARINT_EXTRA - MAX_DEPS_SIZE
         );
 
         println!(
@@ -651,24 +654,21 @@ mod test {
             MAX_ARITY_ROOT * MAX_ARITY_LEAVES * MAX_DATA_PAYLOAD_SIZE
         );
 
-        let max_arity_leaves =
-            (Store::get_max_value_size() - EMPTY_OBJECT_SIZE - BIG_VARINT_EXTRA * 2)
-                / (OBJECT_ID_SIZE + OBJECT_KEY_SIZE);
+        let max_arity_leaves = (max_object_size - EMPTY_OBJECT_SIZE - BIG_VARINT_EXTRA * 2)
+            / (OBJECT_ID_SIZE + OBJECT_KEY_SIZE);
         println!("max_arity_leaves: {}", max_arity_leaves);
         assert_eq!(max_arity_leaves, MAX_ARITY_LEAVES);
         assert_eq!(
-            Store::get_max_value_size() - EMPTY_OBJECT_SIZE - DATA_VARINT_EXTRA,
+            max_object_size - EMPTY_OBJECT_SIZE - DATA_VARINT_EXTRA,
             MAX_DATA_PAYLOAD_SIZE
         );
-        let max_arity_root = (Store::get_max_value_size()
-            - EMPTY_OBJECT_SIZE
-            - MAX_DEPS_SIZE
-            - BIG_VARINT_EXTRA * 2)
-            / (OBJECT_ID_SIZE + OBJECT_KEY_SIZE);
+        let max_arity_root =
+            (max_object_size - EMPTY_OBJECT_SIZE - MAX_DEPS_SIZE - BIG_VARINT_EXTRA * 2)
+                / (OBJECT_ID_SIZE + OBJECT_KEY_SIZE);
         println!("max_arity_root: {}", max_arity_root);
         assert_eq!(max_arity_root, MAX_ARITY_ROOT);
         println!("store_max_value_size: {}", leaf_full_data_ser.len());
-        assert_eq!(leaf_full_data_ser.len(), Store::get_max_value_size());
+        assert_eq!(leaf_full_data_ser.len(), max_object_size);
         println!("leaf_empty: {}", leaf_empty_ser.len());
         assert_eq!(leaf_empty_ser.len(), EMPTY_OBJECT_SIZE);
         println!("root_depsref: {}", root_depsref_ser.len());
@@ -680,7 +680,7 @@ mod test {
                 + BIG_VARINT_EXTRA * 2
                 + MAX_ARITY_LEAVES * (OBJECT_ID_SIZE + OBJECT_KEY_SIZE)
         );
-        assert!(internal_max_ser.len() < Store::get_max_value_size());
+        assert!(internal_max_ser.len() < max_object_size);
         println!("internal_one: {}", internal_one_ser.len());
         assert_eq!(
             internal_one_ser.len(),
