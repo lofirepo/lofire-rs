@@ -257,7 +257,7 @@ impl Tree {
             for id in parents {
                 match store.get(id) {
                     Ok(obj) => {
-                        assert_eq!(Tree::object_id(&obj), *id);
+                        //assert_eq!(Tree::object_id(&obj), *id);
                         nodes.insert(0, obj.clone());
                         match obj {
                             Object::V0(o) => {

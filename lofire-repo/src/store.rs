@@ -1,6 +1,6 @@
 //! Object store
 //!
-
+use debug_print::*;
 use serde::{Deserialize, Serialize};
 use std::cmp::min;
 use std::path::Path;
@@ -267,7 +267,21 @@ impl Store {
 
                 match serde_bare::from_slice::<Object>(&obj_ser.to_bytes().unwrap()) {
                     Err(e) => Err(StoreError::FileInvalid),
-                    Ok(o) => Ok(o),
+                    Ok(o) => {
+                        let obj_ser = serde_bare::to_vec(&o).unwrap();
+                        let hash = blake3::hash(obj_ser.as_slice());
+                        let obj_id = Digest::Blake3Digest32(hash.as_bytes().clone());
+                        if obj_id != *object_id {
+                            debug_println!(
+                                "Invalid ObjectId.\nExp: {:?}\nGot: {:?}\nContent: {:?}",
+                                object_id,
+                                obj_id,
+                                o
+                            );
+                            panic!("CORRUPTION OF DATA !");
+                        }
+                        Ok(o)
+                    }
                 }
             }
         }
@@ -516,7 +530,7 @@ mod test {
         let mut now = Store::now_timestamp();
         now -= 200;
         // TODO: fix the LMDB bug that is triggered with x max set to 86 !!!
-        for x in 1..85 {
+        for x in 1..100 {
             let obj = ObjectV0 {
                 children: Vec::new(),
                 deps: ObjectDeps::ObjectIdList(Vec::new()),
