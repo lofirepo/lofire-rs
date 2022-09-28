@@ -513,7 +513,6 @@ mod test {
 
         let size = Store::get_max_value_size()
             - EMPTY_OBJECT_SIZE
-            - EMPTY_OBJECT_SIZE
             - DATA_VARINT_EXTRA
             - OBJECT_ID_SIZE * deps.len();
         let content: Vec<u8> = vec![99; size];
