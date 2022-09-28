@@ -59,8 +59,8 @@ impl Store {
         let mut manager = Manager::<LmdbEnvironment>::singleton().write().unwrap();
         let shared_rkv = manager
             .get_or_create(path, |path| {
-                //Rkv::new::<Lmdb>(path) // use this instead to disable encryption
-                Rkv::with_encryption_key_and_mapsize::<Lmdb>(path, key, 2 * 1024 * 1024 * 1024)
+                Rkv::new::<Lmdb>(path) // use this instead to disable encryption
+                                       //Rkv::with_encryption_key_and_mapsize::<Lmdb>(path, key, 2 * 1024 * 1024 * 1024)
             })
             .unwrap();
         let env = shared_rkv.read().unwrap();
@@ -965,9 +965,3 @@ mod test {
         //thread::sleep(Duration::from_millis(20000));
     }
 }
-
-pub fn open() {}
-
-pub fn get() {}
-
-pub fn put() {}
