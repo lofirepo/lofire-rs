@@ -9,7 +9,6 @@ use crate::store::*;
 use crate::types::*;
 use lofire::types::*;
 
-pub const MAX_OBJECT_SIZE: usize = 4096;
 /// Size of a serialized empty Object
 pub const EMPTY_OBJECT_SIZE: usize = 12;
 /// Size of a serialized ObjectId
@@ -114,16 +113,16 @@ impl Tree {
         }
 
         fn make_deps(
-            deps_vec: Vec<ObjectId>,
+            deps_vec: &Vec<ObjectId>,
             object_size: usize,
             repo_pubkey: PubKey,
             repo_secret: SymKey,
         ) -> ObjectDeps {
             let deps: ObjectDeps;
             if deps_vec.len() <= 8 {
-                deps = ObjectDeps::ObjectIdList(deps_vec);
+                deps = ObjectDeps::ObjectIdList(deps_vec.clone());
             } else {
-                let dep_list = DepList::V0(deps_vec);
+                let dep_list = DepList::V0(deps_vec.clone());
                 let dep_list_ser = serde_bare::to_vec(&dep_list).unwrap();
                 let dep_tree = Tree::new(
                     dep_list_ser,
@@ -192,9 +191,13 @@ impl Tree {
         let mut nodes: Vec<(Object, SymKey)> = vec![];
         let conv_key = convergence_key(repo_pubkey, repo_secret);
 
-        // leaf nodes
-        for chunk in content.chunks(data_chunk_size) {
-            let data_chunk = ObjectContentV0::DataChunk(chunk.to_vec());
+        let deps = make_deps(&root_deps, object_size, repo_pubkey, repo_secret);
+
+        if EMPTY_OBJECT_SIZE + DATA_VARINT_EXTRA + OBJECT_ID_SIZE * root_deps.len() + content.len()
+            <= object_size
+        {
+            // content fits in root node
+            let data_chunk = ObjectContentV0::DataChunk(content);
             let content_ser = serde_bare::to_vec(&data_chunk).unwrap();
             nodes.push(make_object(
                 content_ser.as_slice(),
@@ -203,16 +206,28 @@ impl Tree {
                 &ObjectDeps::ObjectIdList(vec![]),
                 expiry,
             ));
+        } else {
+            // leaf nodes
+            for chunk in content.chunks(data_chunk_size) {
+                let data_chunk = ObjectContentV0::DataChunk(chunk.to_vec());
+                let content_ser = serde_bare::to_vec(&data_chunk).unwrap();
+                nodes.push(make_object(
+                    content_ser.as_slice(),
+                    &conv_key,
+                    &vec![],
+                    &ObjectDeps::ObjectIdList(vec![]),
+                    expiry,
+                ));
+            }
+
+            // internal nodes
+            // arity: max number of ObjectRefs that fit inside an InternalNode Object within the object_size limit
+            let arity: usize =
+                (object_size - EMPTY_OBJECT_SIZE - BIG_VARINT_EXTRA * 2 - MAX_DEPS_SIZE)
+                    / (OBJECT_ID_SIZE + OBJECT_KEY_SIZE);
+            let mut parents = make_tree(nodes.as_slice(), &conv_key, &deps, expiry, arity);
+            nodes.append(&mut parents);
         }
-
-        // internal nodes
-        // arity: max number of ObjectRefs that fit inside an InternalNode Object within the object_size limit
-        let arity: usize = (object_size - EMPTY_OBJECT_SIZE - BIG_VARINT_EXTRA * 2 - MAX_DEPS_SIZE)
-            / (OBJECT_ID_SIZE + OBJECT_KEY_SIZE);
-        let deps = make_deps(root_deps, object_size, repo_pubkey, repo_secret);
-        let mut parents = make_tree(nodes.as_slice(), &conv_key, &deps, expiry, arity);
-        nodes.append(&mut parents);
-
         // root node
         let (root_obj, root_key) = nodes.last().unwrap();
         let root_id = Self::object_id(root_obj);
@@ -235,28 +250,33 @@ impl Tree {
         fn load_tree(
             nodes: &mut Vec<Object>,
             missing: &mut Vec<ObjectId>,
+            parents: &Vec<ObjectId>,
             store: &Store,
-            id: &ObjectId,
         ) {
-            match store.get(id) {
-                Ok(obj) => {
-                    nodes.insert(0, obj.clone());
-                    match obj {
-                        Object::V0(o) => {
-                            for id in o.children {
-                                load_tree(nodes, missing, store, &id);
+            let mut children: Vec<ObjectId> = vec![];
+            for id in parents {
+                match store.get(id) {
+                    Ok(obj) => {
+                        assert_eq!(Tree::object_id(&obj), *id);
+                        nodes.insert(0, obj.clone());
+                        match obj {
+                            Object::V0(o) => {
+                                children.extend(o.children.iter().rev());
                             }
                         }
                     }
+                    Err(_) => missing.push(id.clone()),
                 }
-                Err(_) => missing.push(id.clone()),
+            }
+            if !children.is_empty() {
+                load_tree(nodes, missing, &children, store);
             }
         }
 
         let mut nodes: Vec<Object> = vec![];
         let mut missing: Vec<ObjectId> = vec![];
 
-        load_tree(&mut nodes, &mut missing, store, &root_id);
+        load_tree(&mut nodes, &mut missing, &vec![root_id], store);
 
         if missing.is_empty() {
             Ok(Tree {
@@ -284,6 +304,10 @@ impl Tree {
     /// Get the key of the root object
     pub fn root_key(&self) -> Option<SymKey> {
         self.root_key
+    }
+
+    pub fn root(&self) -> &Object {
+        self.nodes.last().unwrap()
     }
 
     pub fn nodes(&self) -> &Vec<Object> {
@@ -415,12 +439,13 @@ mod test {
     /// Maximum data that can fit in object.content
     const MAX_DATA_PAYLOAD_SIZE: usize = 2097112;
 
+    /// Test tree API
     #[test]
     pub fn test_tree() {
-        let content: Vec<u8> = vec![100; 20 * 4096];
-        //Vec::from("AAABBBCCCDDDEEEFFFGGGHHHIIIJJJKKKLLLMMMNNNOOOPPPQQQRRRSSSTTT");
+        let c: Vec<u8> = (0..255).collect();
+        let content: Vec<u8> = [c.as_slice(); 320].concat();
         let deps: Vec<ObjectId> = vec![Digest::Blake3Digest32([9; 32])];
-        let expiry = Some(2342);
+        let expiry = Some(2u32.pow(31));
         let max_object_size = 0;
 
         let repo_secret = SymKey::ChaCha20Key([0; 32]);
@@ -438,7 +463,7 @@ mod test {
         println!("root_id: {:?}", tree.root_id());
         println!("root_key: {:?}", tree.root_key().unwrap());
         println!("nodes.len: {:?}", tree.nodes().len());
-        println!("nodes: {:?}", tree.nodes());
+        //println!("nodes: {:?}", tree.nodes());
         let mut i = 0;
         for node in tree.nodes() {
             println!("#{}: {:?}", i, Tree::object_id(node));
@@ -466,7 +491,7 @@ mod test {
         let tree2 = Tree::load(&store, tree.root_id(), tree.root_key()).unwrap();
 
         println!("nodes2.len: {:?}", tree2.nodes().len());
-        println!("nodes2: {:?}", tree2.nodes());
+        //println!("nodes2: {:?}", tree2.nodes());
         let mut i = 0;
         for node in tree2.nodes() {
             println!("#{}: {:?}", i, Tree::object_id(node));
@@ -481,14 +506,19 @@ mod test {
         }
     }
 
+    /// Checks that a content that fits the root node, will not be chunked into children nodes
     #[test]
     pub fn test_depth_1() {
-        // checks that a content that fits the root node, will not be chunked into children nodes
-
-        let content: Vec<u8> = vec![100; MAX_DATA_PAYLOAD_SIZE];
-
         let deps: Vec<ObjectId> = vec![Digest::Blake3Digest32([9; 32])];
-        let expiry = Some(2342);
+
+        let size = Store::get_max_value_size()
+            - EMPTY_OBJECT_SIZE
+            - EMPTY_OBJECT_SIZE
+            - DATA_VARINT_EXTRA
+            - OBJECT_ID_SIZE * deps.len();
+        let content: Vec<u8> = vec![99; size];
+
+        let expiry = Some(2u32.pow(31));
         let max_object_size = Store::get_max_value_size();
 
         let repo_secret = SymKey::ChaCha20Key([0; 32]);
@@ -506,13 +536,9 @@ mod test {
         println!("root_id: {:?}", tree.root_id());
         println!("root_key: {:?}", tree.root_key().unwrap());
         println!("nodes.len: {:?}", tree.nodes().len());
-        println!("nodes: {:?}", tree.nodes());
-        let mut i = 0;
-        for node in tree.nodes() {
-            println!("#{}: {:?}", i, Tree::object_id(node));
-            i += 1;
-        }
-        assert_eq!(tree.nodes().len(), 1)
+        //println!("root: {:?}", tree.root());
+        //println!("nodes: {:?}", tree.nodes());
+        assert_eq!(tree.nodes.len(), 1);
     }
 
     #[test]
