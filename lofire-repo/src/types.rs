@@ -72,16 +72,7 @@ pub struct ObjectV0 {
     pub content: Vec<u8>,
 }
 
-impl ObjectV0 {
-    pub fn get_expiry(&self) -> Option<Timestamp> {
-        self.expiry
-    }
-}
-
 /// Immutable object with encrypted content
-#[impl_enum::with_methods {
-    pub fn get_expiry(&self) -> Option<Timestamp>
-}]
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 pub enum Object {
     V0(ObjectV0),
@@ -130,22 +121,22 @@ pub enum RemoveBranch {
 /// Commit object types
 #[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq, Eq, Hash)]
 pub enum CommitType {
-    RepositoryCommit,
-    AddBranchCommit,
-    RemoveBranchCommit,
-    BranchCommit,
-    AddMembersCommit,
-    EndOfBranchCommit,
-    TransactionCommit,
-    SnapshotCommit,
-    AckCommit,
+    Repository,
+    AddBranch,
+    RemoveBranch,
+    Branch,
+    AddMembers,
+    EndOfBranch,
+    Transaction,
+    Snapshot,
+    Ack,
 }
 
 /// Member of a Branch
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct MemberV0 {
     /// Member public key ID
-    pub d: PubKey,
+    pub id: PubKey,
 
     /// Commit types the member is allowed to publish in the branch
     pub commit_types: Vec<CommitType>,

@@ -10,6 +10,8 @@ edition = "2021"
 lofire = { path = "../lofire" }
 blake3 = "1.3.1"
 chacha20 = "0.9.0"
+ed25519-dalek = "1.0.1"
+rand = "0.7"
 serde = { version = "1.0.142", features = ["derive"] }
 serde_bare = "0.5.0"
 tempfile = "3"
@@ -17,3 +19,4 @@ rkv = { git = "https://github.com/p2pcollab/rkv.git", branch = "main", features 
 serde_bytes = "0.11.7"
 impl-enum = "0.3.0"
 debug_print = "1.0.0"
+

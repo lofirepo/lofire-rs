@@ -23,28 +23,28 @@ pub enum SymKey {
 }
 
 /// Curve25519 public key
-pub type Curve25519PubKey = [u8; 32];
+pub type Ed25519PubKey = [u8; 32];
 
 /// Curve25519 private key
-pub type Curve25519PrivKey = [u8; 32];
+pub type Ed25519PrivKey = [u8; 32];
 
 /// Public key
-#[derive(Clone, Copy, Debug, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq)]
 pub enum PubKey {
-    Curve25519PubKey(Curve25519PubKey),
+    Ed25519PubKey(Ed25519PubKey),
 }
 
 /// Private key
-#[derive(Clone, Copy, Debug, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq)]
 pub enum PrivKey {
-    Curve25519PrivKey(Curve25519PrivKey),
+    Ed25519PrivKey(Ed25519PrivKey),
 }
 
 /// Ed25519 signature
 pub type Ed25519Sig = [[u8; 32]; 2];
 
 /// Cryptographic signature
-#[derive(Clone, Copy, Debug, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq)]
 pub enum Signature {
     Ed25519Sig(Ed25519Sig),
 }

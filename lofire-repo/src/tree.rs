@@ -78,7 +78,7 @@ impl Tree {
     ) -> Tree {
         fn convergence_key(repo_pubkey: PubKey, repo_secret: SymKey) -> [u8; blake3::OUT_LEN] {
             let key_material = match (repo_pubkey, repo_secret) {
-                (PubKey::Curve25519PubKey(pubkey), SymKey::ChaCha20Key(secret)) => {
+                (PubKey::Ed25519PubKey(pubkey), SymKey::ChaCha20Key(secret)) => {
                     [pubkey, secret].concat()
                 }
             };
@@ -107,7 +107,7 @@ impl Tree {
             });
             let key = SymKey::ChaCha20Key(key.clone());
             debug_println!("make_object:");
-            debug_println!("  id: {:?}", Tree::object_id(&obj));
+            debug_println!("  id: {:?}", obj.id());
             debug_println!("  children: ({}) {:?}", children.len(), children);
             (obj, key)
         }
@@ -154,10 +154,7 @@ impl Tree {
             let mut it = chunks.peekable();
             while let Some(nodes) = it.next() {
                 let keys = nodes.iter().map(|(_obj, key)| key.clone()).collect();
-                let children = nodes
-                    .iter()
-                    .map(|(obj, _key)| Tree::object_id(obj))
-                    .collect();
+                let children = nodes.iter().map(|(obj, _key)| obj.id()).collect();
                 let content = ObjectContentV0::InternalNode(keys);
                 let content_ser = serde_bare::to_vec(&content).unwrap();
                 let child_deps = ObjectDeps::ObjectIdList(vec![]);
@@ -230,7 +227,7 @@ impl Tree {
         }
         // root node
         let (root_obj, root_key) = nodes.last().unwrap();
-        let root_id = Self::object_id(root_obj);
+        let root_id = root_obj.id();
 
         Tree {
             root_id,
@@ -257,7 +254,6 @@ impl Tree {
             for id in parents {
                 match store.get(id) {
                     Ok(obj) => {
-                        //assert_eq!(Tree::object_id(&obj), *id);
                         nodes.insert(0, obj.clone());
                         match obj {
                             Object::V0(o) => {
@@ -314,13 +310,6 @@ impl Tree {
         &self.nodes
     }
 
-    /// Get the ID of an Object
-    pub fn object_id(obj: &Object) -> ObjectId {
-        let ser = serde_bare::to_vec(obj).unwrap();
-        let hash = blake3::hash(ser.as_slice());
-        Digest::Blake3Digest32(hash.as_bytes().clone())
-    }
-
     /// Parse tree and return decrypted content assembled from chunks
     pub fn content(&self) -> Result<Vec<u8>, TreeParseError> {
         /// Collect decrypted leaves from the tree
@@ -344,12 +333,8 @@ impl Tree {
                 i += 1;
 
                 // verify object ID
-                if *id != Tree::object_id(node) {
-                    debug_println!(
-                        "Invalid ObjectId.\nExp: {:?}\nGot: {:?}",
-                        *id,
-                        Tree::object_id(node)
-                    );
+                if *id != node.id() {
+                    debug_println!("Invalid ObjectId.\nExp: {:?}\nGot: {:?}", *id, node.id());
                     return Err(TreeParseError::InvalidObjectId);
                 }
 
@@ -449,7 +434,7 @@ mod test {
         let max_object_size = 0;
 
         let repo_secret = SymKey::ChaCha20Key([0; 32]);
-        let repo_pubkey = PubKey::Curve25519PubKey([1; 32]);
+        let repo_pubkey = PubKey::Ed25519PubKey([1; 32]);
 
         let tree = Tree::new(
             content.clone(),
@@ -466,7 +451,7 @@ mod test {
         //println!("nodes: {:?}", tree.nodes());
         let mut i = 0;
         for node in tree.nodes() {
-            println!("#{}: {:?}", i, Tree::object_id(node));
+            println!("#{}: {:?}", i, node.id());
             i += 1;
         }
 
@@ -494,7 +479,7 @@ mod test {
         //println!("nodes2: {:?}", tree2.nodes());
         let mut i = 0;
         for node in tree2.nodes() {
-            println!("#{}: {:?}", i, Tree::object_id(node));
+            println!("#{}: {:?}", i, node.id());
             i += 1;
         }
 
@@ -521,7 +506,7 @@ mod test {
         let max_object_size = Store::get_max_value_size();
 
         let repo_secret = SymKey::ChaCha20Key([0; 32]);
-        let repo_pubkey = PubKey::Curve25519PubKey([1; 32]);
+        let repo_pubkey = PubKey::Ed25519PubKey([1; 32]);
 
         let tree = Tree::new(
             content.clone(),

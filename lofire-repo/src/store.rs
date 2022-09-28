@@ -268,14 +268,11 @@ impl Store {
                 match serde_bare::from_slice::<Object>(&obj_ser.to_bytes().unwrap()) {
                     Err(_e) => Err(StoreError::FileInvalid), //FIXME beter error handling
                     Ok(o) => {
-                        let obj_ser = serde_bare::to_vec(&o).unwrap();
-                        let hash = blake3::hash(obj_ser.as_slice());
-                        let obj_id = Digest::Blake3Digest32(hash.as_bytes().clone());
-                        if obj_id != *object_id {
+                        if o.id() != *object_id {
                             debug_println!(
                                 "Invalid ObjectId.\nExp: {:?}\nGot: {:?}\nContent: {:?}",
                                 object_id,
-                                obj_id,
+                                o.id(),
                                 o
                             );
                             panic!("CORRUPTION OF DATA !");
@@ -302,7 +299,7 @@ impl Store {
             .unwrap();
 
         // if it has an expiry, adding the objectId to the expiry_store
-        match object.get_expiry() {
+        match object.expiry() {
             Some(expiry) => {
                 self.expiry_store
                     .put(&mut writer, expiry, &Value::Blob(obj_id_ser.as_slice()))
@@ -341,7 +338,7 @@ impl Store {
         // deleting object from main_store
         self.main_store.delete(&mut writer, obj_id_ser.clone())?;
         // removing objectId from expiry_store, if any expiry
-        match obj.get_expiry() {
+        match obj.expiry() {
             Some(expiry) => {
                 self.expiry_store.delete(
                     &mut writer,
