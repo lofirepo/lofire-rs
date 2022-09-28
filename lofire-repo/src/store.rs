@@ -375,6 +375,15 @@ impl Store {
             - HEADER
     }
 
+    /// Returns the maximum value size for the entries of the storage backend.
+    pub fn get_max_value_size() -> usize {
+        const MIN_SIZE: usize = 4072;
+        const PAGE_SIZE: usize = 4096;
+        const HEADER: usize = PAGE_SIZE - MIN_SIZE;
+        const MAX_FACTOR: usize = 512;
+        MAX_FACTOR * PAGE_SIZE - HEADER
+    }
+
     /// Removes some objects that haven't been used for a while, reclaiming some room on disk.
     /// The oldest are removed first, until the total amount of data removed is at least equal to size,
     /// or the LRU list became empty. The approximate size of the storage space that was reclaimed is returned.
