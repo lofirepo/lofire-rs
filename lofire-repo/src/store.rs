@@ -14,8 +14,8 @@ use rkv::backend::{
     LmdbDatabase, LmdbDatabaseFlags, LmdbEnvironment, LmdbRwTransaction, LmdbWriteFlags,
 };
 use rkv::{
-    Manager, MultiIntegerStore, Rkv, SingleStore, StoreError, StoreError::DataError, StoreOptions,
-    Value, WriteFlags, Writer,
+    Manager, MultiIntegerStore, Rkv, SingleStore, StoreError, StoreOptions, Value, WriteFlags,
+    Writer,
 };
 use serde_bare::error::Error;
 
@@ -59,8 +59,8 @@ impl Store {
         let mut manager = Manager::<LmdbEnvironment>::singleton().write().unwrap();
         let shared_rkv = manager
             .get_or_create(path, |path| {
-                Rkv::new::<Lmdb>(path) // use this instead to disable encryption
-                                       //Rkv::with_encryption_key_and_mapsize::<Lmdb>(path, key, 2 * 1024 * 1024 * 1024)
+                //Rkv::new::<Lmdb>(path) // use this instead to disable encryption
+                Rkv::with_encryption_key_and_mapsize::<Lmdb>(path, key, 2 * 1024 * 1024 * 1024)
             })
             .unwrap();
         let env = shared_rkv.read().unwrap();
@@ -228,7 +228,7 @@ impl Store {
         let obj_ser_res = self.main_store.get(&reader, obj_id_ser.clone());
         match obj_ser_res {
             Err(e) => Err(e),
-            Ok(None) => Err(StoreError::FileInvalid),
+            Ok(None) => Err(StoreError::FileInvalid), // FIXME : proper error handling
             Ok(Some(obj_ser)) => {
                 // updating recently_used
                 // first getting the meta for this objectId
@@ -266,7 +266,7 @@ impl Store {
                 }
 
                 match serde_bare::from_slice::<Object>(&obj_ser.to_bytes().unwrap()) {
-                    Err(e) => Err(StoreError::FileInvalid),
+                    Err(_e) => Err(StoreError::FileInvalid), //FIXME beter error handling
                     Ok(o) => {
                         let obj_ser = serde_bare::to_vec(&o).unwrap();
                         let hash = blake3::hash(obj_ser.as_slice());
