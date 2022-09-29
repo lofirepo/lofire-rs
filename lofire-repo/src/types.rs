@@ -6,16 +6,6 @@ use lofire::types::*;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
-/// Object reference
-#[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq)]
-pub struct ObjectRef {
-    /// Object ID
-    pub id: ObjectId,
-
-    /// Key for decrypting the Object
-    pub key: SymKey,
-}
-
 /// Internal node of a Merkle tree
 pub type InternalNode = Vec<SymKey>;
 
@@ -328,6 +318,14 @@ pub struct CommitContentV0 {
 /// Signed by branch key, or a member key authorized to publish this commit type
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct CommitV0 {
+    /// ID of parent Object
+    #[serde(skip)]
+    pub id: Option<ObjectId>,
+
+    /// Key of parent Object
+    #[serde(skip)]
+    pub key: Option<SymKey>,
+
     /// Commit content
     pub content: CommitContentV0,
 
