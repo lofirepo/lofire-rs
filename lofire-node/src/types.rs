@@ -7,68 +7,6 @@ use lofire_repo::types::*;
 use serde::{Deserialize, Serialize};
 
 //
-// COMMON DATA TYPES FOR MESSAGES
-//
-
-/// Peer ID: public key of node
-pub type PeerId = PubKey;
-
-/// IPv4 address
-pub type IPv4 = [u8; 4];
-
-/// IPv6 address
-pub type IPv6 = [u8; 16];
-
-/// IP address
-#[derive(Clone, Copy, Debug, Serialize, Deserialize)]
-pub enum IP {
-    IPv4(IPv4),
-    IPv6(IPv6),
-}
-
-/// IP transport protocol
-#[derive(Clone, Copy, Debug, Serialize, Deserialize)]
-pub enum IPTransportProtocol {
-    TLS,
-    QUIC,
-}
-
-/// IP transport address
-#[derive(Clone, Copy, Debug, Serialize, Deserialize)]
-pub struct IPTransportAddr {
-    pub ip: IP,
-    pub port: u16,
-    pub protocol: IPTransportProtocol,
-}
-
-/// Network address
-#[derive(Clone, Copy, Debug, Serialize, Deserialize)]
-pub enum NetAddr {
-    IPTransport(IPTransportAddr),
-}
-
-/// Bloom filter (variable size)
-#[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct BloomFilter {
-    /// Number of hash functions
-    pub k: u8,
-
-    /// Filter
-    #[serde(with = "serde_bytes")]
-    pub f: Vec<u8>,
-}
-
-/// Bloom filter (128 B)
-///
-/// (m=1024; k=7; p=0.01; n=107)
-pub type BloomFilter128 = [[u8; 32]; 4];
-
-/// Bloom filter (1 KiB)
-///
-/// (m=8192; k=7; p=0.01; n=855)
-pub type BloomFilter1K = [[u8; 32]; 32];
-
-//
 // OVERLAY MESSAGES
 //
 

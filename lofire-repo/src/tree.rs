@@ -40,6 +40,8 @@ pub struct Tree {
 /// Tree parsing errors
 #[derive(Debug)]
 pub enum TreeParseError {
+    /// Missing root key
+    MissingRootKey,
     /// Invalid object ID encountered in the tree
     InvalidObjectId,
     /// Too many or too few children of a node
@@ -48,13 +50,6 @@ pub enum TreeParseError {
     InvalidKeys,
     /// Error deserializing content of a node
     DeserializeError,
-}
-
-/// Tree loading errors
-#[derive(Debug)]
-pub enum TreeLoadError {
-    /// A tree node Object is missing from the store
-    MissingObject,
 }
 
 impl Tree {
@@ -88,8 +83,8 @@ impl Tree {
         fn make_object(
             content: &[u8],
             conv_key: &[u8; blake3::OUT_LEN],
-            children: &Vec<ObjectId>,
-            deps: &ObjectDeps,
+            children: Vec<ObjectId>,
+            deps: ObjectDeps,
             expiry: Option<Timestamp>,
         ) -> (Object, SymKey) {
             let key_hash = blake3::keyed_hash(conv_key, content);
@@ -100,29 +95,29 @@ impl Tree {
             let mut content_enc_slice = &mut content_enc.as_mut_slice();
             cipher.apply_keystream(&mut content_enc_slice);
             let obj = Object::V0(ObjectV0 {
-                children: children.clone(),
-                deps: deps.clone(),
+                children,
+                deps,
                 expiry,
                 content: content_enc,
             });
             let key = SymKey::ChaCha20Key(key.clone());
-            debug_println!("make_object:");
-            debug_println!("  id: {:?}", obj.id());
-            debug_println!("  children: ({}) {:?}", children.len(), children);
+            debug_println!(">>> make_object:");
+            debug_println!("!! id: {:?}", obj.id());
+            //debug_println!("!! children: ({}) {:?}", children.len(), children);
             (obj, key)
         }
 
         fn make_deps(
-            deps_vec: &Vec<ObjectId>,
+            deps_vec: Vec<ObjectId>,
             object_size: usize,
             repo_pubkey: PubKey,
             repo_secret: SymKey,
         ) -> ObjectDeps {
             let deps: ObjectDeps;
             if deps_vec.len() <= 8 {
-                deps = ObjectDeps::ObjectIdList(deps_vec.clone());
+                deps = ObjectDeps::ObjectIdList(deps_vec);
             } else {
-                let dep_list = DepList::V0(deps_vec.clone());
+                let dep_list = DepList::V0(deps_vec);
                 let dep_list_ser = serde_bare::to_vec(&dep_list).unwrap();
                 let dep_tree = Tree::new(
                     dep_list_ser,
@@ -145,7 +140,7 @@ impl Tree {
         fn make_tree(
             leaves: &[(Object, SymKey)],
             conv_key: &ChaCha20Key,
-            root_deps: &ObjectDeps,
+            root_deps: ObjectDeps,
             expiry: Option<Timestamp>,
             arity: usize,
         ) -> Vec<(Object, SymKey)> {
@@ -159,14 +154,14 @@ impl Tree {
                 let content_ser = serde_bare::to_vec(&content).unwrap();
                 let child_deps = ObjectDeps::ObjectIdList(vec![]);
                 let deps = if parents.is_empty() && it.peek().is_none() {
-                    root_deps
+                    root_deps.clone()
                 } else {
-                    &child_deps
+                    child_deps
                 };
                 parents.push(make_object(
                     content_ser.as_slice(),
                     conv_key,
-                    &children,
+                    children,
                     deps,
                     expiry,
                 ));
@@ -174,8 +169,13 @@ impl Tree {
             debug_println!("parents += {}", parents.len());
 
             if 1 < parents.len() {
-                let mut great_parents =
-                    make_tree(parents.as_slice(), conv_key, root_deps, expiry, arity);
+                let mut great_parents = make_tree(
+                    parents.as_slice(),
+                    conv_key,
+                    root_deps.clone(),
+                    expiry,
+                    arity,
+                );
                 parents.append(&mut great_parents);
             }
             parents
@@ -188,19 +188,19 @@ impl Tree {
         let mut nodes: Vec<(Object, SymKey)> = vec![];
         let conv_key = convergence_key(repo_pubkey, repo_secret);
 
-        let deps = make_deps(&root_deps, object_size, repo_pubkey, repo_secret);
+        let deps = make_deps(root_deps.clone(), object_size, repo_pubkey, repo_secret);
 
         if EMPTY_OBJECT_SIZE + DATA_VARINT_EXTRA + OBJECT_ID_SIZE * root_deps.len() + content.len()
             <= object_size
         {
             // content fits in root node
-            let data_chunk = ObjectContentV0::DataChunk(content);
+            let data_chunk = ObjectContentV0::DataChunk(content.clone());
             let content_ser = serde_bare::to_vec(&data_chunk).unwrap();
             nodes.push(make_object(
                 content_ser.as_slice(),
                 &conv_key,
-                &vec![],
-                &ObjectDeps::ObjectIdList(vec![]),
+                vec![],
+                ObjectDeps::ObjectIdList(vec![]),
                 expiry,
             ));
         } else {
@@ -211,8 +211,8 @@ impl Tree {
                 nodes.push(make_object(
                     content_ser.as_slice(),
                     &conv_key,
-                    &vec![],
-                    &ObjectDeps::ObjectIdList(vec![]),
+                    vec![],
+                    ObjectDeps::ObjectIdList(vec![]),
                     expiry,
                 ));
             }
@@ -222,7 +222,7 @@ impl Tree {
             let arity: usize =
                 (object_size - EMPTY_OBJECT_SIZE - BIG_VARINT_EXTRA * 2 - MAX_DEPS_SIZE)
                     / (OBJECT_ID_SIZE + OBJECT_KEY_SIZE);
-            let mut parents = make_tree(nodes.as_slice(), &conv_key, &deps, expiry, arity);
+            let mut parents = make_tree(nodes.as_slice(), &conv_key, deps.clone(), expiry, arity);
             nodes.append(&mut parents);
         }
         // root node
@@ -240,19 +240,19 @@ impl Tree {
     ///
     /// Returns Ok(Tree) or a Err(Vec<ObjectId>) of missing Object IDs
     pub fn load(
-        store: &Store,
         root_id: ObjectId,
         root_key: Option<SymKey>,
+        store: &Store,
     ) -> Result<Tree, Vec<ObjectId>> {
         fn load_tree(
+            parents: Vec<ObjectId>,
+            store: &Store,
             nodes: &mut Vec<Object>,
             missing: &mut Vec<ObjectId>,
-            parents: &Vec<ObjectId>,
-            store: &Store,
         ) {
             let mut children: Vec<ObjectId> = vec![];
             for id in parents {
-                match store.get(id) {
+                match store.get(&id) {
                     Ok(obj) => {
                         nodes.insert(0, obj.clone());
                         match obj {
@@ -265,14 +265,14 @@ impl Tree {
                 }
             }
             if !children.is_empty() {
-                load_tree(nodes, missing, &children, store);
+                load_tree(children, store, nodes, missing);
             }
         }
 
         let mut nodes: Vec<Object> = vec![];
         let mut missing: Vec<ObjectId> = vec![];
 
-        load_tree(&mut nodes, &mut missing, &vec![root_id], store);
+        load_tree(vec![root_id], store, &mut nodes, &mut missing);
 
         if missing.is_empty() {
             Ok(Tree {
@@ -302,6 +302,18 @@ impl Tree {
         self.root_key
     }
 
+    /// Get an `ObjectRef` for the root object
+    pub fn root_ref(&self) -> Option<ObjectRef> {
+        if self.root_key.is_some() {
+            Some(ObjectRef {
+                id: self.root_id,
+                key: self.root_key.unwrap(),
+            })
+        } else {
+            None
+        }
+    }
+
     pub fn root(&self) -> &Object {
         self.nodes.last().unwrap()
     }
@@ -314,21 +326,21 @@ impl Tree {
     pub fn content(&self) -> Result<Vec<u8>, TreeParseError> {
         /// Collect decrypted leaves from the tree
         fn collect_leaves(
-            leaves: &mut Vec<u8>,
             nodes: &Vec<Object>,
             parents: &Vec<(ObjectId, SymKey)>,
             parent_index: usize,
+            leaves: &mut Vec<u8>,
         ) -> Result<(), TreeParseError> {
-            debug_println!(
-                "collect_leaves: #{}..{}",
+            /*debug_println!(
+                ">>> collect_leaves: #{}..{}",
                 parent_index,
                 parent_index + parents.len() - 1
-            );
+            );*/
             let mut children: Vec<(ObjectId, SymKey)> = vec![];
             let mut i = parent_index;
 
             for (id, key) in parents {
-                debug_println!("parent: #{}", i);
+                //debug_println!("!!! parent: #{}", i);
                 let node = &nodes[i];
                 i += 1;
 
@@ -370,8 +382,8 @@ impl Tree {
                                         keys.len(),
                                         obj.children.len()
                                     );
-                                    debug_println!("children: {:?}", obj.children);
-                                    debug_println!("keys: {:?}", keys);
+                                    debug_println!("!!! children: {:?}", obj.children);
+                                    debug_println!("!!! keys: {:?}", keys);
                                     return Err(TreeParseError::InvalidKeys);
                                 }
 
@@ -390,7 +402,7 @@ impl Tree {
                 if parent_index < children.len() {
                     return Err(TreeParseError::InvalidChildren);
                 }
-                match collect_leaves(leaves, nodes, &children, parent_index - children.len()) {
+                match collect_leaves(nodes, &children, parent_index - children.len(), leaves) {
                     Ok(_) => (),
                     Err(e) => return Err(e),
                 }
@@ -398,9 +410,13 @@ impl Tree {
             Ok(())
         }
 
+        if self.root_key.is_none() {
+            return Err(TreeParseError::MissingRootKey);
+        }
+
         let mut leaves: Vec<u8> = vec![];
         let parents = vec![(self.root_id, self.root_key.unwrap())];
-        match collect_leaves(&mut leaves, &self.nodes, &parents, self.nodes.len() - 1) {
+        match collect_leaves(&self.nodes, &parents, self.nodes.len() - 1, &mut leaves) {
             Ok(_) => Ok(leaves),
             Err(e) => Err(e),
         }
@@ -473,7 +489,7 @@ mod test {
 
         tree.save(&store);
 
-        let tree2 = Tree::load(&store, tree.root_id(), tree.root_key()).unwrap();
+        let tree2 = Tree::load(tree.root_id(), tree.root_key(), &store).unwrap();
 
         println!("nodes2.len: {:?}", tree2.nodes().len());
         //println!("nodes2: {:?}", tree2.nodes());
@@ -509,7 +525,7 @@ mod test {
         let repo_pubkey = PubKey::Ed25519PubKey([1; 32]);
 
         let tree = Tree::new(
-            content.clone(),
+            content,
             deps,
             expiry,
             max_object_size,
