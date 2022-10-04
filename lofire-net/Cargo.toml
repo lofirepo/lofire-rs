@@ -1,5 +1,5 @@
 [package]
-name = "lofire-node"
+name = "lofire-net"
 version = "0.1.0"
 edition = "2021"
 
@@ -7,7 +7,6 @@ edition = "2021"
 
 [dependencies]
 lofire = { path = "../lofire" }
-lofire-net = { path = "../lofire-net" }
 lofire-repo = { path = "../lofire-repo" }
 blake3 = "1.3.1"
 chacha20 = "0.9.0"

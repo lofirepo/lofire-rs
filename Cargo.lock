@@ -345,12 +345,39 @@ dependencies = [
 ]
 
 [[package]]
+name = "lofire-app"
+version = "0.1.0"
+dependencies = [
+ "blake3",
+ "chacha20",
+ "lofire",
+ "lofire-net",
+ "serde",
+ "serde_bare",
+ "serde_bytes",
+]
+
+[[package]]
+name = "lofire-net"
+version = "0.1.0"
+dependencies = [
+ "blake3",
+ "chacha20",
+ "lofire",
+ "lofire-repo",
+ "serde",
+ "serde_bare",
+ "serde_bytes",
+]
+
+[[package]]
 name = "lofire-node"
 version = "0.1.0"
 dependencies = [
  "blake3",
  "chacha20",
  "lofire",
+ "lofire-net",
  "lofire-repo",
  "serde",
  "serde_bare",
