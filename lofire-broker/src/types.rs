@@ -207,15 +207,15 @@ pub type OverlayId = Digest;
 
 /// Server hello sent upon a client connection
 #[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct ServerHelloV0 {
+pub struct HelloV0 {
     /// Nonce for ClientAuth
     #[serde(with = "serde_bytes")]
     pub nonce: Vec<u8>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
-pub enum ServerHello {
-    V0(ServerHelloV0),
+pub enum Hello {
+    V0(HelloV0),
 }
 
 /// Content of ClientAuthV0
@@ -227,7 +227,7 @@ pub struct ClientAuthContentV0 {
     /// Device pub key
     pub device: PubKey,
 
-    /// Nonce from ServerHello
+    /// Nonce from Hello
     #[serde(with = "serde_bytes")]
     pub nonce: Vec<u8>,
 }
@@ -563,7 +563,7 @@ pub enum AppOverlayMessage {
 /// Content of AppMessageV0
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub enum AppMessageContentV0 {
-    ServerHello(ServerHello),
+    Hello(Hello),
     ClientAuth(ClientAuth),
     AddUser(AddUser),
     DelUser(DelUser),
