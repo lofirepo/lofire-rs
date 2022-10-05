@@ -241,7 +241,7 @@ pub struct MemberV0 {
     /// Commit types the member is allowed to publish in the branch
     pub commit_types: Vec<CommitType>,
 
-    /// Application-specific metadata
+    /// App-specific metadata
     /// (role, permissions, cryptographic material, etc)
     #[serde(with = "serde_bytes")]
     pub metadata: Vec<u8>,

@@ -10,49 +10,6 @@ use serde::{Deserialize, Serialize};
 // BROKER PROTOCOL
 //
 
-/// Server hello sent upon a client connection
-#[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct ServerHelloV0 {
-    /// Nonce for ClientAuth
-    #[serde(with = "serde_bytes")]
-    pub nonce: Vec<u8>,
-}
-
-#[derive(Clone, Debug, Serialize, Deserialize)]
-pub enum ServerHello {
-    V0(ServerHelloV0),
-}
-
-/// Content of ClientAuthV0
-#[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct ClientAuthContentV0 {
-    /// User pub key
-    pub user: PubKey,
-
-    /// Device pub key
-    pub device: PubKey,
-
-    /// Nonce from ServerHello
-    #[serde(with = "serde_bytes")]
-    pub nonce: Vec<u8>,
-}
-
-/// Client authentication
-#[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct ClientAuthV0 {
-    /// Authentication data
-    pub content: ClientAuthContentV0,
-
-    /// Signature by device key
-    pub sig: Sig,
-}
-
-/// Client authentication
-#[derive(Clone, Debug, Serialize, Deserialize)]
-pub enum ClientAuth {
-    V0(ClientAuthV0),
-}
-
 /// Content of AddUserV0
 #[derive(Clone, Copy, Debug, Serialize, Deserialize)]
 pub struct AddUserContentV0 {
@@ -96,47 +53,47 @@ pub enum DelUser {
     V0(DelUserV0),
 }
 
-/// Content of AuthorizeDeviceKeyV0
+/// Content of `AddClientV0`
 #[derive(Clone, Copy, Debug, Serialize, Deserialize)]
-pub struct AuthorizeDeviceKeyContentV0 {
-    /// Device pub key
-    pub device: PubKey,
+pub struct AddClientContentV0 {
+    /// Client pub key
+    pub client: PubKey,
 }
-/// Authorize device key
+/// Add a client
 #[derive(Clone, Copy, Debug, Serialize, Deserialize)]
-pub struct AuthorizeDeviceKeyV0 {
-    pub content: AuthorizeDeviceKeyContentV0,
+pub struct AddClientV0 {
+    pub content: AddClientContentV0,
 
     /// Signature by user key
     pub sig: Sig,
 }
 
-/// Authorize device key
+/// Add a client
 #[derive(Clone, Copy, Debug, Serialize, Deserialize)]
-pub enum AuthorizeDeviceKey {
-    V0(AuthorizeDeviceKeyV0),
+pub enum AddClient {
+    V0(AddClientV0),
 }
 
-/// Content of RevokeDeviceKeyV0
+/// Content of `DelClientV0`
 #[derive(Clone, Copy, Debug, Serialize, Deserialize)]
-pub struct RevokeDeviceKeyContentV0 {
-    /// Device pub key
-    pub device: PubKey,
+pub struct DelClientContentV0 {
+    /// Client pub key
+    pub client: PubKey,
 }
 
-/// Revoke device key
+/// Remove a client
 #[derive(Clone, Copy, Debug, Serialize, Deserialize)]
-pub struct RevokeDeviceKeyV0 {
-    pub content: RevokeDeviceKeyContentV0,
+pub struct DelClientV0 {
+    pub content: DelClientContentV0,
 
     /// Signature by user key
     pub sig: Sig,
 }
 
-/// Revoke device key
+/// Remove a client
 #[derive(Clone, Copy, Debug, Serialize, Deserialize)]
-pub enum RevokeDeviceKey {
-    V0(RevokeDeviceKeyV0),
+pub enum DelClient {
+    V0(DelClientV0),
 }
 
 /// Request to join an overlay
@@ -161,11 +118,11 @@ pub enum OverlayLeave {
     V0(),
 }
 
-/// Request an object by ID
+/// Request a Block by ID
 #[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct ObjectGetV0 {
-    /// List of Object IDs to request
-    pub ids: Vec<ObjectId>,
+pub struct BlockGetV0 {
+    /// List of Block IDs to request
+    pub ids: Vec<BlockId>,
 
     /// Whether or not to include all children recursively
     pub include_children: bool,
@@ -176,20 +133,14 @@ pub struct ObjectGetV0 {
 
 /// Request an object by ID
 #[derive(Clone, Debug, Serialize, Deserialize)]
-pub enum ObjectGet {
-    V0(ObjectGetV0),
+pub enum BlockGet {
+    V0(BlockGetV0),
 }
 
 /// Request to store an object
 #[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct ObjectPutV0 {
-    pub object: Block,
-}
-
-/// Request to store an object
-#[derive(Clone, Debug, Serialize, Deserialize)]
-pub enum ObjectPut {
-    V0(ObjectPutV0),
+pub enum BlockPut {
+    V0(Block),
 }
 
 /// Request to pin an object
@@ -259,8 +210,8 @@ pub struct TopicSubV0 {
     /// Topic to subscribe
     pub topic: PubKey,
 
-    /// Topic private key for publishers
-    pub key: Option<PrivKey>,
+    /// Signed `TopicAdvert` for the PeerId of the broker
+    pub advert: Option<TopicAdvert>,
 }
 
 /// Request subscription to a topic
@@ -282,16 +233,16 @@ pub enum TopicUnsub {
     V0(TopicUnsubV0),
 }
 
-/// Content of AppRequestV0
+/// Content of BrokerRequestV0
 #[derive(Clone, Debug, Serialize, Deserialize)]
-pub enum AppRequestContentV0 {
+pub enum BrokerRequestContentV0 {
     OverlayJoin(OverlayJoin),
     OverlayLeave(OverlayLeave),
     TopicSub(TopicSub),
     TopicUnsub(TopicUnsub),
     Event(Event),
-    ObjectGet(ObjectGet),
-    ObjectPut(ObjectPut),
+    ObjectGet(BlockGet),
+    ObjectPut(BlockPut),
     ObjectPin(ObjectPin),
     ObjectUnpin(ObjectUnpin),
     ObjectCopy(ObjectCopy),
@@ -299,20 +250,20 @@ pub enum AppRequestContentV0 {
     BranchHeadsReq(BranchHeadsReq),
     BranchSyncReq(BranchSyncReq),
 }
-/// Application request
+/// Broker request
 #[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct AppRequestV0 {
+pub struct BrokerRequestV0 {
     /// Request ID
     pub id: u64,
 
     /// Request content
-    pub content: AppRequestContentV0,
+    pub content: BrokerRequestContentV0,
 }
 
-/// Application request
+/// Broker request
 #[derive(Clone, Debug, Serialize, Deserialize)]
-pub enum AppRequest {
-    V0(AppRequestV0),
+pub enum BrokerRequest {
+    V0(BrokerRequestV0),
 }
 
 /// Result codes
@@ -322,66 +273,68 @@ pub enum Result {
     Error,
 }
 
-/// Content of AppResponseV0
+/// Content of BrokerResponseV0
 #[derive(Clone, Debug, Serialize, Deserialize)]
-pub enum AppResponseContentV0 {
+pub enum BrokerResponseContentV0 {
     Block(Block),
 }
 
-/// Response to an AppRequest
+/// Response to an BrokerRequest
 #[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct AppResponseV0 {
+pub struct BrokerResponseV0 {
     /// Request ID
     pub id: u64,
 
-    /// Result (incl but not limited to Result)
-    pub result: u8,
-    pub content: Option<AppResponseContentV0>,
+    /// Result (including but not limited to Result)
+    pub result: u16,
+
+    /// Response content
+    pub content: Option<BrokerResponseContentV0>,
 }
 
-/// Response to an AppRequest
+/// Response to an BrokerRequest
 #[derive(Clone, Debug, Serialize, Deserialize)]
-pub enum AppResponse {
-    V0(AppResponseV0),
+pub enum BrokerResponse {
+    V0(BrokerResponseV0),
 }
 
-/// Content of AppOverlayMessageV0
+/// Content of BrokerOverlayMessageV0
 #[derive(Clone, Debug, Serialize, Deserialize)]
-pub enum AppOverlayMessageContentV0 {
-    AppRequest(AppRequest),
-    AppResponse(AppResponse),
+pub enum BrokerOverlayMessageContentV0 {
+    BrokerRequest(BrokerRequest),
+    BrokerResponse(BrokerResponse),
     Event(Event),
 }
-/// Application message for an overlay
+/// Broker message for an overlay
 #[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct AppOverlayMessageV0 {
+pub struct BrokerOverlayMessageV0 {
     pub overlay: OverlayId,
-    pub content: AppOverlayMessageContentV0,
+    pub content: BrokerOverlayMessageContentV0,
 }
 
-/// Application message for an overlay
+/// Broker message for an overlay
 #[derive(Clone, Debug, Serialize, Deserialize)]
-pub enum AppOverlayMessage {
-    V0(AppOverlayMessageV0),
+pub enum BrokerOverlayMessage {
+    V0(BrokerOverlayMessageV0),
 }
 
-/// Content of AppMessageV0
+/// Content of BrokerMessageV0
 #[derive(Clone, Debug, Serialize, Deserialize)]
-pub enum AppMessageContentV0 {
+pub enum BrokerMessageContentV0 {
     ServerHello(ServerHello),
     ClientAuth(ClientAuth),
     AddUser(AddUser),
     DelUser(DelUser),
-    AuthorizeDeviceKey(AuthorizeDeviceKey),
-    RevokeDeviceKey(RevokeDeviceKey),
-    AppOverlayMessage(AppOverlayMessage),
+    AddClient(AddClient),
+    DelClient(DelClient),
+    BrokerOverlayMessage(BrokerOverlayMessage),
 }
 
-/// Application message
+/// Broker message
 #[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct AppMessageV0 {
+pub struct BrokerMessageV0 {
     /// Message content
-    pub content: AppMessageContentV0,
+    pub content: BrokerMessageContentV0,
 
     /// Optional padding
     #[serde(with = "serde_bytes")]
@@ -471,7 +424,7 @@ pub struct ExtResponseV0 {
     pub id: u64,
 
     /// Result code
-    pub result: u8,
+    pub result: u16,
 
     /// Response content
     pub content: Option<ExtResponseContentV0>,
@@ -481,6 +434,82 @@ pub struct ExtResponseV0 {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub enum ExtResponse {
     V0(ExtResponseV0),
+}
+
+///
+/// AUTHENTICATION MESSAGES
+///
+
+/// Client Hello
+pub type ClientHelloV0 = ();
+
+/// Client Hello
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub enum ClientHello {
+    V0(ClientHelloV0),
+}
+
+/// Initiate connection - choose broker or ext protocol
+/// First message sent by the client
+pub enum InitConnection {
+    Broker(ClientHello),
+    Ext(ExtRequest),
+}
+
+/// Server hello sent upon a client connection
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct ServerHelloV0 {
+    /// Nonce for ClientAuth
+    #[serde(with = "serde_bytes")]
+    pub nonce: Vec<u8>,
+}
+
+/// Server hello sent upon a client connection
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub enum ServerHello {
+    V0(ServerHelloV0),
+}
+
+/// Content of ClientAuthV0
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct ClientAuthContentV0 {
+    /// User pub key
+    pub user: PubKey,
+
+    /// Client pub key
+    pub client: PubKey,
+
+    /// Nonce from ServerHello
+    #[serde(with = "serde_bytes")]
+    pub nonce: Vec<u8>,
+}
+
+/// Client authentication
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct ClientAuthV0 {
+    /// Authentication data
+    pub content: ClientAuthContentV0,
+
+    /// Signature by client key
+    pub sig: Sig,
+}
+
+/// Client authentication
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub enum ClientAuth {
+    V0(ClientAuthV0),
+}
+
+/// Authentication result
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct AuthResultV0 {
+    pub result: u16,
+}
+
+/// Authentication result
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub enum AuthResult {
+    V0(AuthResultV0),
 }
 
 //
@@ -532,7 +561,7 @@ pub struct ObjectLinkV0 {
     /// Request to send to an overlay peer
     pub req: ExtRequest,
 
-    /// Keys for the requested objects
+    /// Keys for the root blocks of the requested objects
     pub keys: Vec<ObjectRef>,
 }
 
@@ -553,8 +582,8 @@ pub struct TopicV0 {
     /// Topic public key ID
     pub id: PubKey,
 
-    /// Topic private key for publishers
-    pub priv_key: Option<PrivKey>,
+    /// Signed `TopicAdvert` for publishers
+    pub advert: Option<TopicAdvert>,
 
     /// Set of branch heads
     pub heads: Vec<ObjectId>,
@@ -582,7 +611,7 @@ pub struct OverlayV0 {
     pub peers: Vec<PeerAdvert>,
 
     /// Topics this node subscribed to in the overlay
-    pub topics: Vec<Topic>,
+    pub topics: Vec<TopicId>,
 
     /// Number of local users that joined the overlay
     pub users: u32,
@@ -602,17 +631,17 @@ pub enum Overlay {
 /// Stored as user_pubkey -> Account
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct AccountV0 {
-    /// Authorized device pub keys
+    /// Authorized client pub keys
     pub authorized_keys: Vec<PubKey>,
 
     /// Admins can add/remove user accounts
     pub admin: bool,
 
     /// Overlays joined
-    pub overlays: Vec<Overlay>,
+    pub overlays: Vec<OverlayId>,
 
     /// Topics joined, with publisher flag
-    pub topics: Vec<Topic>,
+    pub topics: Vec<TopicId>,
 }
 
 /// User account

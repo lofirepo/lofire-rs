@@ -9,7 +9,7 @@ use serde::{Deserialize, Serialize};
 // COMMON TYPES FOR MESSAGES
 //
 
-/// Peer ID: public key of node
+/// Peer ID: public key of the node
 pub type PeerId = PubKey;
 
 /// Overlay ID
@@ -26,6 +26,9 @@ pub type OverlayId = Digest;
 /// Used as a component for key derivation.
 /// Each peer generates it randomly when (re)joining the overlay network.
 pub type SessionId = u64;
+
+/// Topic ID: public key of the topic
+pub type TopicId = PubKey;
 
 /// IPv4 address
 pub type IPv4 = [u8; 4];
@@ -85,7 +88,7 @@ pub enum OverlayDisconnect {
 #[derive(Clone, Copy, Debug, Serialize, Deserialize)]
 pub struct TopicAdvertContentV0 {
     /// Topic public key
-    pub topic: PubKey,
+    pub topic: TopicId,
 
     /// Peer public key
     pub peer: PeerId,
@@ -120,7 +123,7 @@ pub struct SubReqV0 {
     pub id: u64,
 
     /// Topic public key
-    pub topic: PubKey,
+    pub topic: TopicId,
 }
 
 /// Topic subscription request by a peer
@@ -151,7 +154,7 @@ pub enum SubAck {
 #[derive(Clone, Copy, Debug, Serialize, Deserialize)]
 pub struct UnsubReqV0 {
     /// Topic public key
-    pub topic: PubKey,
+    pub topic: TopicId,
 }
 
 /// Topic unsubscription request by a subscriber
@@ -165,7 +168,7 @@ pub enum UnsubReq {
 #[derive(Clone, Copy, Debug, Serialize, Deserialize)]
 pub struct UnsubAckV0 {
     /// Topic public key
-    pub topic: PubKey,
+    pub topic: TopicId,
 }
 #[derive(Clone, Copy, Debug, Serialize, Deserialize)]
 pub enum UnsubAck {
@@ -176,10 +179,11 @@ pub enum UnsubAck {
 /// Contains a chunk of a newly added Commit or File referenced by a commit.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct ChangeV0 {
-    /// Object with encrypted content
+    /// Block with encrypted content
     pub content: Block,
 
     /// Encrypted key for the Commit object in content
+    /// Only set for the root block of the object
     /// The key is encrypted using ChaCha20:
     /// - key: BLAKE3 derive_key ("LoFiRe Event ObjectRef ChaCha20 key",
     ///                           branch_pubkey + branch_secret + publisher_pubkey)
@@ -198,7 +202,7 @@ pub enum EventBodyV0 {
 #[derive(Clone, Copy, Debug, Serialize, Deserialize)]
 pub struct EventContentV0 {
     /// Pub/sub topic
-    pub topic: PubKey,
+    pub topic: TopicId,
 
     /// Publisher pubkey hash
     /// BLAKE3 keyed hash over branch member pubkey
@@ -236,15 +240,15 @@ pub enum Event {
 /// Sent along the reverse path of a pub/sub topic
 /// from a subscriber to all publishers.
 #[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct ObjectSearchTopicV0 {
+pub struct BlockSearchTopicV0 {
     /// Topic to forward the request in
-    pub topic: PubKey,
+    pub topic: TopicId,
 
     /// List of Object IDs to request
     pub ids: Vec<ObjectId>,
 
     /// Whether or not to include all children recursively in the response
-    pub recursive: bool,
+    pub include_children: bool,
 
     /// List of Peer IDs the request traversed so far
     pub path: Vec<PeerId>,
@@ -252,18 +256,18 @@ pub struct ObjectSearchTopicV0 {
 
 /// Object request by ID
 #[derive(Clone, Debug, Serialize, Deserialize)]
-pub enum ObjectSearchTopic {
-    V0(ObjectSearchTopicV0),
+pub enum BlockSearchTopic {
+    V0(BlockSearchTopicV0),
 }
 
-/// Object search along a random walk
+/// Block search along a random walk
 #[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct ObjectSearchRandomV0 {
-    /// List of Object IDs to request
-    pub ids: Vec<ObjectId>,
+pub struct BlockSearchRandomV0 {
+    /// List of Block IDs to request
+    pub ids: Vec<BlockId>,
 
     /// Whether or not to include all children recursively in the response
-    pub recursive: bool,
+    pub include_children: bool,
 
     /// Number of random nodes to forward the request to at each step
     pub fanout: u8,
@@ -272,17 +276,17 @@ pub struct ObjectSearchRandomV0 {
     pub path: Vec<PeerId>,
 }
 
-/// Object request by ID using a random walk
+/// Block request by ID using a random walk
 #[derive(Clone, Debug, Serialize, Deserialize)]
-pub enum ObjectSearchRandom {
-    V0(ObjectSearchRandomV0),
+pub enum BlockSearchRandom {
+    V0(BlockSearchRandomV0),
 }
 
-/// Response to an Object request
+/// Response to a BlockSearch* request
 ///
 /// Follows request path with possible shortcuts.
 #[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct ObjectResultV0 {
+pub struct BlockResultV0 {
     /// Response path
     pub path: Vec<PeerId>,
 
@@ -290,10 +294,10 @@ pub struct ObjectResultV0 {
     pub payload: Vec<Block>,
 }
 
-/// Response to an Object request
+/// Response to a BlockSearch* request
 #[derive(Clone, Debug, Serialize, Deserialize)]
-pub enum ObjectResult {
-    V0(ObjectResultV0),
+pub enum BlockResult {
+    V0(BlockResultV0),
 }
 
 /// Request latest events corresponding to the branch heads in a pub/sub topic
@@ -303,7 +307,7 @@ pub enum ObjectResult {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct BranchHeadsReqV0 {
     /// Topic public key of the branch
-    pub topic: PubKey,
+    pub topic: TopicId,
 
     /// Known heads
     pub known_heads: Vec<ObjectId>,
@@ -317,7 +321,7 @@ pub enum BranchHeadsReq {
 
 /// Branch synchronization request
 ///
-/// In response a stream of Objects are sent
+/// In response a stream of `Block`s of the requested Objects are sent
 /// that are not present in the requestor's known heads and commits
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct BranchSyncReqV0 {
@@ -370,7 +374,7 @@ pub struct HaveEventsV0 {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct EventReqV0 {
     /// Topic public key
-    pub topic: PubKey,
+    pub topic: TopicId,
 
     /// Events needed by the requestor
     pub need: Vec<NeedEventsV0>,
@@ -499,9 +503,9 @@ pub enum OverlayMessageContentV0 {
     UnsubReq(UnsubReq),
     UnsubAck(UnsubAck),
     Event(Event),
-    ObjectSearchTopic(ObjectSearchTopic),
-    ObjectSearchRandom(ObjectSearchRandom),
-    ObjectResult(ObjectResult),
+    ObjectSearchTopic(BlockSearchTopic),
+    ObjectSearchRandom(BlockSearchRandom),
+    ObjectResult(BlockResult),
     OverlayRequest(OverlayRequest),
     OverlayResponse(OverlayResponse),
 }
