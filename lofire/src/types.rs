@@ -3,8 +3,8 @@
 //! Corresponds to the BARE schema
 
 use serde::{Deserialize, Serialize};
-use std::hash::Hash;
 use std::collections::HashMap;
+use std::hash::Hash;
 
 //
 // COMMON TYPES
@@ -35,13 +35,13 @@ pub type Ed25519PubKey = [u8; 32];
 pub type Ed25519PrivKey = [u8; 32];
 
 /// Public key
-#[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq)]
+#[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq, Eq)]
 pub enum PubKey {
     Ed25519PubKey(Ed25519PubKey),
 }
 
 /// Private key
-#[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq)]
+#[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq, Eq)]
 pub enum PrivKey {
     Ed25519PrivKey(Ed25519PrivKey),
 }
@@ -50,8 +50,8 @@ pub enum PrivKey {
 pub type Ed25519Sig = [[u8; 32]; 2];
 
 /// Cryptographic signature
-#[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq)]
-pub enum Signature {
+#[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq, Eq)]
+pub enum Sig {
     Ed25519Sig(Ed25519Sig),
 }
 
@@ -83,21 +83,21 @@ pub type IPv4 = [u8; 4];
 pub type IPv6 = [u8; 16];
 
 /// IP address
-#[derive(Clone, Copy, Debug, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq, Eq)]
 pub enum IP {
     IPv4(IPv4),
     IPv6(IPv6),
 }
 
 /// IP transport protocol
-#[derive(Clone, Copy, Debug, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq, Eq)]
 pub enum IPTransportProtocol {
     TLS,
     QUIC,
 }
 
 /// IP transport address
-#[derive(Clone, Copy, Debug, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq, Eq)]
 pub struct IPTransportAddr {
     pub ip: IP,
     pub port: u16,
@@ -105,13 +105,13 @@ pub struct IPTransportAddr {
 }
 
 /// Network address
-#[derive(Clone, Copy, Debug, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq, Eq)]
 pub enum NetAddr {
     IPTransport(IPTransportAddr),
 }
 
 /// Bloom filter (variable size)
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
 pub struct BloomFilter {
     /// Number of hash functions
     pub k: u32,
@@ -135,26 +135,32 @@ pub type BloomFilter1K = [[u8; 32]; 32];
 // REPOSITORY TYPES
 //
 
-/// Object ID:
+/// Block ID:
 /// BLAKE3 hash over the serialized Object with encrypted content
-pub type ObjectId = Digest;
+pub type BlockId = Digest;
 
-/// Object reference
+/// Block reference
 #[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq, Eq, Hash)]
-pub struct ObjectRef {
+pub struct BlockRef {
     /// Object ID
-    pub id: ObjectId,
+    pub id: BlockId,
 
     /// Key for decrypting the Object
     pub key: SymKey,
 }
 
+/// Object ID
+pub type ObjectId = BlockId;
+
+/// Object reference
+pub type ObjectRef = BlockRef;
+
 /// Internal node of a Merkle tree
 pub type InternalNode = Vec<SymKey>;
 
-/// Content of ObjectV0: a Merkle tree node
-#[derive(Clone, Debug, Serialize, Deserialize)]
-pub enum ObjectContentV0 {
+/// Content of BlockV0: a Merkle tree node
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+pub enum BlockContentV0 {
     /// Internal node with references to children
     InternalNode(InternalNode),
 
@@ -163,13 +169,13 @@ pub enum ObjectContentV0 {
 }
 
 /// List of ObjectId dependencies as encrypted Object content
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
 pub enum DepList {
     V0(Vec<ObjectId>),
 }
 
 /// Dependencies of an Object
-#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
 pub enum ObjectDeps {
     /// List of Object IDs (max. 8),
     ObjectIdList(Vec<ObjectId>),
@@ -178,20 +184,22 @@ pub enum ObjectDeps {
     DepListRef(ObjectRef),
 }
 
-/// Immutable object with encrypted content
+/// Immutable block with encrypted content
 ///
-/// Data is chunked and stored in a Merkle tree.
-/// An Object stores a Merkle tree node.
-#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
-pub struct ObjectV0 {
-    /// Objects IDs for child nodes in the Merkle tree
-    pub children: Vec<ObjectId>,
+/// `ObjectContent` is chunked and stored as `Block`s in a Merkle tree.
+/// A Block is a Merkle tree node.
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+pub struct BlockV0 {
+    /// Block IDs for child nodes in the Merkle tree
+    pub children: Vec<BlockId>,
 
     /// Other objects this object depends on (e.g. Commit deps & acks)
+    /// Only set for the root block
     pub deps: ObjectDeps,
 
     /// Expiry time of this object and all of its children
     /// when the object should be deleted by all replicas
+    /// Only set for the root block
     pub expiry: Option<Timestamp>,
 
     /// Encrypted ObjectContentV0
@@ -206,9 +214,9 @@ pub struct ObjectV0 {
 }
 
 /// Immutable object with encrypted content
-#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
-pub enum Object {
-    V0(ObjectV0),
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+pub enum Block {
+    V0(BlockV0),
 }
 
 /// Repository definition
@@ -217,7 +225,7 @@ pub enum Object {
 /// - branch_pubkey: repo_pubkey
 /// - branch_secret: BLAKE3 derive_key ("LoFiRe Root Branch secret",
 ///                                     repo_pubkey + repo_secret)
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
 pub struct RepositoryV0 {
     /// Repo public key ID
     pub id: PubKey,
@@ -234,19 +242,19 @@ pub struct RepositoryV0 {
 }
 
 /// Repository definition
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
 pub enum Repository {
     V0(RepositoryV0),
 }
 
 /// Add a branch to the repository
-#[derive(Clone, Copy, Debug, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq, Eq)]
 pub enum AddBranch {
     V0(ObjectRef),
 }
 
 /// Remove a branch from the repository
-#[derive(Clone, Copy, Debug, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq, Eq)]
 pub enum RemoveBranch {
     V0(ObjectRef),
 }
@@ -266,7 +274,7 @@ pub enum CommitType {
 }
 
 /// Member of a Branch
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
 pub struct MemberV0 {
     /// Member public key ID
     pub id: PubKey,
@@ -281,7 +289,7 @@ pub struct MemberV0 {
 }
 
 /// Member of a branch
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
 pub enum Member {
     V0(MemberV0),
 }
@@ -291,7 +299,7 @@ pub enum Member {
 /// First commit in a branch, signed by branch key
 /// In case of a fork, the commit deps indicat
 /// the previous branch heads.
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
 pub struct BranchV0 {
     /// Branch public key ID
     pub id: PubKey,
@@ -322,13 +330,13 @@ pub struct BranchV0 {
 }
 
 /// Branch definition
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
 pub enum Branch {
     V0(BranchV0),
 }
 
 /// Add members to an existing branch
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
 pub struct AddMembersV0 {
     /// Members to add, with permissions
     pub members: Vec<MemberV0>,
@@ -346,13 +354,13 @@ pub struct AddMembersV0 {
 /// in that case this can only be used for adding new permissions,
 /// not to remove existing ones.
 /// The quorum and ackDelay can be changed as well
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
 pub enum AddMembers {
     V0(AddMembersV0),
 }
 
 /// ObjectRef for EndOfBranch
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
 pub enum PlainOrEncryptedObjectRef {
     Plain(ObjectRef),
     Encrypted(Vec<u8>),
@@ -363,7 +371,7 @@ pub enum PlainOrEncryptedObjectRef {
 /// No more commits accepted afterwards, only acks of this commit
 /// May reference a fork where the branch continues
 /// with possibly different members, permissions, validation rules.
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
 pub struct EndOfBranchV0 {
     /// (Encrypted) reference to forked branch (optional)
     pub fork: Option<PlainOrEncryptedObjectRef>,
@@ -373,13 +381,13 @@ pub struct EndOfBranchV0 {
 }
 
 /// End of branch
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
 pub enum EndOfBranch {
     V0(EndOfBranchV0),
 }
 
 /// Transaction with CRDT operations
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
 pub enum Transaction {
     #[serde(with = "serde_bytes")]
     V0(Vec<u8>),
@@ -389,7 +397,7 @@ pub enum Transaction {
 ///
 /// Contains a data structure
 /// computed from the commits at the specified head.
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
 pub struct SnapshotV0 {
     /// Branch heads the snapshot was made from
     pub heads: Vec<ObjectId>,
@@ -400,19 +408,19 @@ pub struct SnapshotV0 {
 }
 
 /// Snapshot of a Branch
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
 pub enum Snapshot {
     V0(SnapshotV0),
 }
 
 /// Acknowledgement of another Commit
-#[derive(Clone, Copy, Debug, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq, Eq)]
 pub enum Ack {
     V0(),
 }
 
 /// Commit body, corresponds to CommitType
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
 pub enum CommitBody {
     Repository(Repository),
     AddBranch(AddBranch),
@@ -426,7 +434,7 @@ pub enum CommitBody {
 }
 
 /// Content of a Commit
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
 pub struct CommitContentV0 {
     /// Commit author
     pub author: PubKey,
@@ -459,7 +467,7 @@ pub struct CommitContentV0 {
 
 /// Commit object
 /// Signed by branch key, or a member key authorized to publish this commit type
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
 pub struct CommitV0 {
     /// ID of parent Object
     #[serde(skip)]
@@ -473,17 +481,17 @@ pub struct CommitV0 {
     pub content: CommitContentV0,
 
     /// Signature over the content by the author
-    pub sig: Signature,
+    pub sig: Sig,
 }
 
-/// Commit object
-#[derive(Clone, Debug, Serialize, Deserialize)]
+/// Commit Object
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
 pub enum Commit {
     V0(CommitV0),
 }
 
-/// A file stored in an Object
-#[derive(Clone, Debug, Serialize, Deserialize)]
+/// File Object
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
 pub struct FileV0 {
     #[serde(with = "serde_bytes")]
     pub content_type: Vec<u8>,
@@ -496,14 +504,14 @@ pub struct FileV0 {
 }
 
 /// A file stored in an Object
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
 pub enum File {
     V0(FileV0),
 }
 
 /// Immutable data stored encrypted in a Merkle tree
-#[derive(Clone, Debug, Serialize, Deserialize)]
-pub enum Data {
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+pub enum ObjectContent {
     Commit(Commit),
     CommitBody(CommitBody),
     File(File),

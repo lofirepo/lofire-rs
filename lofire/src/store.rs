@@ -1,5 +1,5 @@
-//! Object store
-//!
+//! Block store
+
 use debug_print::*;
 use serde::{Deserialize, Serialize};
 use std::cmp::min;
@@ -19,7 +19,7 @@ use rkv::{
 use serde_bare::error::Error;
 
 pub struct Store {
-    /// the main store where all the repo objects are stored
+    /// the main store where all the repo blocks are stored
     main_store: SingleStore<LmdbDatabase>,
     /// store for the pin boolean, recently_used timestamp, and synced boolean
     meta_store: SingleStore<LmdbDatabase>,
@@ -33,7 +33,7 @@ pub struct Store {
 
 // TODO: versioning V0
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
-struct ObjectMeta {
+struct BlockMeta {
     pub pin: bool,
     pub last_used: Timestamp,
     pub synced: bool,
@@ -109,7 +109,7 @@ impl Store {
         match meta_ser {
             Some(meta_value) => {
                 meta =
-                    serde_bare::from_slice::<ObjectMeta>(&meta_value.to_bytes().unwrap()).unwrap();
+                    serde_bare::from_slice::<BlockMeta>(&meta_value.to_bytes().unwrap()).unwrap();
 
                 if add == meta.pin {
                     // pinning while already pinned, or unpinning while already unpinned. NOP
@@ -132,7 +132,7 @@ impl Store {
             }
             None => {
                 if add {
-                    meta = ObjectMeta {
+                    meta = BlockMeta {
                         pin: true,
                         synced: false,
                         last_used: 0,
@@ -157,14 +157,14 @@ impl Store {
         Ok(())
     }
 
-    /// the broker calls this method when the object has been retrieved/synced by enough peers and it
+    /// the broker calls this method when the block has been retrieved/synced by enough peers and it
     /// can now be included in the LRU for potential garbage collection.
-    /// If this method has not been called on an object, it will be kept in the store and will not enter LRU.
-    pub fn has_been_synced(&self, object_id: &ObjectId, when: Option<u32>) -> Result<(), Error> {
+    /// If this method has not been called on a block, it will be kept in the store and will not enter LRU.
+    pub fn has_been_synced(&self, block_id: &BlockId, when: Option<u32>) -> Result<(), Error> {
         let lock = self.environment.read().unwrap();
         let mut writer = lock.write().unwrap();
-        let obj_id_ser = serde_bare::to_vec(&object_id).unwrap();
-        let meta_ser = self.meta_store.get(&writer, obj_id_ser.clone()).unwrap();
+        let block_id_ser = serde_bare::to_vec(&block_id).unwrap();
+        let meta_ser = self.meta_store.get(&writer, block_id_ser.clone()).unwrap();
         let mut meta;
         let now = match when {
             None => Self::now_timestamp(),
@@ -179,7 +179,7 @@ impl Store {
         match meta_ser {
             Some(meta_value) => {
                 meta =
-                    serde_bare::from_slice::<ObjectMeta>(&meta_value.to_bytes().unwrap()).unwrap();
+                    serde_bare::from_slice::<BlockMeta>(&meta_value.to_bytes().unwrap()).unwrap();
 
                 if meta.synced {
                     // already synced. NOP
@@ -192,24 +192,24 @@ impl Store {
                 if !meta.pin {
                     // we add an entry to recently_used_store with now
                     println!("adding to LRU");
-                    self.add_to_lru(&mut writer, &obj_id_ser, &now).unwrap();
+                    self.add_to_lru(&mut writer, &block_id_ser, &now).unwrap();
                 }
             }
             None => {
-                meta = ObjectMeta {
+                meta = BlockMeta {
                     pin: false,
                     synced: true,
                     last_used: now,
                 };
                 println!("adding to LRU also");
-                self.add_to_lru(&mut writer, &obj_id_ser, &now).unwrap();
+                self.add_to_lru(&mut writer, &block_id_ser, &now).unwrap();
             }
         }
         let new_meta_ser = serde_bare::to_vec(&meta).unwrap();
         self.meta_store
             .put(
                 &mut writer,
-                obj_id_ser,
+                block_id_ser,
                 &Value::Blob(new_meta_ser.as_slice()),
             )
             .unwrap();
@@ -219,33 +219,33 @@ impl Store {
         Ok(())
     }
 
-    /// Retrieves an object from the storage backend.
-    pub fn get(&self, object_id: &ObjectId) -> Result<Object, StoreError> {
+    /// Retrieves a block from the storage backend.
+    pub fn get(&self, block_id: &BlockId) -> Result<Block, StoreError> {
         let lock = self.environment.read().unwrap();
         let reader = lock.read().unwrap();
-        let obj_id_ser = serde_bare::to_vec(&object_id).unwrap();
-        let obj_ser_res = self.main_store.get(&reader, obj_id_ser.clone());
-        match obj_ser_res {
+        let block_id_ser = serde_bare::to_vec(&block_id).unwrap();
+        let block_ser_res = self.main_store.get(&reader, block_id_ser.clone());
+        match block_ser_res {
             Err(e) => Err(e),
             Ok(None) => Err(StoreError::FileInvalid), // FIXME : proper error handling
-            Ok(Some(obj_ser)) => {
+            Ok(Some(block_ser)) => {
                 // updating recently_used
-                // first getting the meta for this objectId
-                let meta_ser = self.meta_store.get(&reader, obj_id_ser.clone()).unwrap();
+                // first getting the meta for this BlockId
+                let meta_ser = self.meta_store.get(&reader, block_id_ser.clone()).unwrap();
                 match meta_ser {
                     Some(meta_value) => {
                         let mut meta =
-                            serde_bare::from_slice::<ObjectMeta>(&meta_value.to_bytes().unwrap())
+                            serde_bare::from_slice::<BlockMeta>(&meta_value.to_bytes().unwrap())
                                 .unwrap();
                         if meta.synced {
                             let mut writer = lock.write().unwrap();
                             let now = Self::now_timestamp();
                             if !meta.pin {
                                 // we remove the previous timestamp (last_used) from recently_used_store
-                                self.remove_from_lru(&mut writer, &obj_id_ser, &meta.last_used)
+                                self.remove_from_lru(&mut writer, &block_id_ser, &meta.last_used)
                                     .unwrap();
                                 // we add an entry to recently_used_store with now
-                                self.add_to_lru(&mut writer, &obj_id_ser, &now).unwrap();
+                                self.add_to_lru(&mut writer, &block_id_ser, &now).unwrap();
                             }
                             // we save the new meta (with last_used:now)
                             meta.last_used = now;
@@ -253,7 +253,7 @@ impl Store {
                             self.meta_store
                                 .put(
                                     &mut writer,
-                                    obj_id_ser,
+                                    block_id_ser,
                                     &Value::Blob(new_meta_ser.as_slice()),
                                 )
                                 .unwrap();
@@ -264,13 +264,13 @@ impl Store {
                     _ => {} // there is no meta. we do nothing since we start to record LRU only once synced == true.
                 }
 
-                match serde_bare::from_slice::<Object>(&obj_ser.to_bytes().unwrap()) {
+                match serde_bare::from_slice::<Block>(&block_ser.to_bytes().unwrap()) {
                     Err(_e) => Err(StoreError::FileInvalid), //FIXME beter error handling
                     Ok(o) => {
-                        if o.id() != *object_id {
+                        if o.id() != *block_id {
                             debug_println!(
                                 "Invalid ObjectId.\nExp: {:?}\nGot: {:?}\nContent: {:?}",
-                                object_id,
+                                block_id,
                                 o.id(),
                                 o
                             );
@@ -283,76 +283,84 @@ impl Store {
         }
     }
 
-    /// Adds an object in the storage backend. The object is persisted to disk. Returns the ObjectId of the Object.
-    pub fn put(&self, object: &Object) -> ObjectId {
-        let obj_ser = serde_bare::to_vec(&object).unwrap();
+    /// Adds a block in the storage backend.
+    /// The block is persisted to disk.
+    /// Returns the BlockId of the Block.
+    pub fn put(&self, block: &Block) -> BlockId {
+        let block_ser = serde_bare::to_vec(&block).unwrap();
 
-        let hash = blake3::hash(obj_ser.as_slice());
-        let obj_id = Digest::Blake3Digest32(hash.as_bytes().clone());
-        let obj_id_ser = serde_bare::to_vec(&obj_id).unwrap();
+        let hash = blake3::hash(block_ser.as_slice());
+        let block_id = Digest::Blake3Digest32(hash.as_bytes().clone());
+        let block_id_ser = serde_bare::to_vec(&block_id).unwrap();
 
         let lock = self.environment.read().unwrap();
         let mut writer = lock.write().unwrap();
         self.main_store
-            .put(&mut writer, &obj_id_ser, &Value::Blob(obj_ser.as_slice()))
+            .put(
+                &mut writer,
+                &block_id_ser,
+                &Value::Blob(block_ser.as_slice()),
+            )
             .unwrap();
 
-        // if it has an expiry, adding the objectId to the expiry_store
-        match object.expiry() {
+        // if it has an expiry, adding the BlockId to the expiry_store
+        match block.expiry() {
             Some(expiry) => {
                 self.expiry_store
-                    .put(&mut writer, expiry, &Value::Blob(obj_id_ser.as_slice()))
+                    .put(&mut writer, expiry, &Value::Blob(block_id_ser.as_slice()))
                     .unwrap();
             }
             _ => {}
         }
         writer.commit().unwrap();
 
-        obj_id
+        block_id
     }
 
-    /// Removes the object from the storage backend. The removed object is returned so it can be inspected.
+    /// Removes the block from the storage backend.
+    /// The removed block is returned, so it can be inspected.
     /// Also returned is the approximate size of of free space that was reclaimed.
-    pub fn del(&self, object_id: &ObjectId) -> Result<(Object, usize), StoreError> {
+    pub fn del(&self, block_id: &BlockId) -> Result<(Block, usize), StoreError> {
         let lock = self.environment.read().unwrap();
         let mut writer = lock.write().unwrap();
-        let obj_id_ser = serde_bare::to_vec(&object_id).unwrap();
-        // retrieving the object itself (we need the expiry)
-        let obj_ser = self.main_store.get(&writer, obj_id_ser.clone())?;
-        if obj_ser.is_none() {
+        let block_id_ser = serde_bare::to_vec(&block_id).unwrap();
+        // retrieving the block itself (we need the expiry)
+        let block_ser = self.main_store.get(&writer, block_id_ser.clone())?;
+        if block_ser.is_none() {
             return Err(StoreError::FileInvalid); //FIXME with propoer Error type
         }
-        let slice = obj_ser.unwrap().to_bytes().unwrap();
-        let obj = serde_bare::from_slice::<Object>(&slice).unwrap(); //FIXME propagate error?
-        let meta_res = self.meta_store.get(&writer, obj_id_ser.clone())?;
+        let slice = block_ser.unwrap().to_bytes().unwrap();
+        let block = serde_bare::from_slice::<Block>(&slice).unwrap(); //FIXME propagate error?
+        let meta_res = self.meta_store.get(&writer, block_id_ser.clone())?;
         if meta_res.is_some() {
-            let meta = serde_bare::from_slice::<ObjectMeta>(&meta_res.unwrap().to_bytes().unwrap())
+            let meta = serde_bare::from_slice::<BlockMeta>(&meta_res.unwrap().to_bytes().unwrap())
                 .unwrap();
             if meta.last_used != 0 {
-                self.remove_from_lru(&mut writer, &obj_id_ser.clone(), &meta.last_used)?;
+                self.remove_from_lru(&mut writer, &block_id_ser.clone(), &meta.last_used)?;
             }
             // removing the meta
-            self.meta_store.delete(&mut writer, obj_id_ser.clone())?;
+            self.meta_store.delete(&mut writer, block_id_ser.clone())?;
         }
-        // deleting object from main_store
-        self.main_store.delete(&mut writer, obj_id_ser.clone())?;
-        // removing objectId from expiry_store, if any expiry
-        match obj.expiry() {
+        // delete block from main_store
+        self.main_store.delete(&mut writer, block_id_ser.clone())?;
+        // remove BlockId from expiry_store, if any expiry
+        match block.expiry() {
             Some(expiry) => {
                 self.expiry_store.delete(
                     &mut writer,
                     expiry,
-                    &Value::Blob(obj_id_ser.clone().as_slice()),
+                    &Value::Blob(block_id_ser.clone().as_slice()),
                 )?;
             }
             _ => {}
         }
 
         writer.commit().unwrap();
-        Ok((obj, slice.len()))
+        Ok((block, slice.len()))
     }
 
-    /// Removes all the objects that have expired. The broker should call this method periodically.
+    /// Removes all the blocks that have expired.
+    /// The broker should call this method periodically.
     pub fn remove_expired(&self) -> Result<(), Error> {
         let lock = self.environment.read().unwrap();
         let reader = lock.read().unwrap();
@@ -365,8 +373,8 @@ impl Store {
         while let Some(Ok(mut sub_iter)) = iter.next() {
             while let Some(Ok(k)) = sub_iter.next() {
                 //println!("removing {:?} {:?}", k.0, k.1);
-                let obj_id = serde_bare::from_slice::<ObjectId>(k.1).unwrap();
-                self.del(&obj_id).unwrap();
+                let block_id = serde_bare::from_slice::<ObjectId>(k.1).unwrap();
+                self.del(&block_id).unwrap();
             }
         }
         Ok(())
@@ -391,7 +399,7 @@ impl Store {
         Self::MAX_FACTOR * Self::PAGE_SIZE - Self::HEADER
     }
 
-    /// Removes some objects that haven't been used for a while, reclaiming some room on disk.
+    /// Removes some blocks that haven't been used for a while, reclaiming some space on disk.
     /// The oldest are removed first, until the total amount of data removed is at least equal to size,
     /// or the LRU list became empty. The approximate size of the storage space that was reclaimed is returned.
     pub fn remove_least_used(&self, size: usize) -> usize {
@@ -403,11 +411,11 @@ impl Store {
         let mut total: usize = 0;
 
         while let Some(Ok(entry)) = iter.next() {
-            let obj_id =
+            let block_id =
                 serde_bare::from_slice::<ObjectId>(entry.1.to_bytes().unwrap().as_slice()).unwrap();
-            let obj = self.del(&obj_id).unwrap();
-            println!("removed {:?}", obj_id);
-            total += obj.1;
+            let block = self.del(&block_id).unwrap();
+            println!("removed {:?}", block_id);
+            total += block.1;
             if total >= size {
                 break;
             }
@@ -418,17 +426,17 @@ impl Store {
     fn remove_from_lru(
         &self,
         writer: &mut Writer<LmdbRwTransaction>,
-        obj_id_ser: &Vec<u8>,
+        block_id_ser: &Vec<u8>,
         time: &Timestamp,
     ) -> Result<(), StoreError> {
         self.recently_used_store
-            .delete(writer, *time, &Value::Blob(obj_id_ser.as_slice()))
+            .delete(writer, *time, &Value::Blob(block_id_ser.as_slice()))
     }
 
     fn add_to_lru(
         &self,
         writer: &mut Writer<LmdbRwTransaction>,
-        obj_id_ser: &Vec<u8>,
+        block_id_ser: &Vec<u8>,
         time: &Timestamp,
     ) -> Result<(), StoreError> {
         let mut flag = LmdbWriteFlags::empty();
@@ -436,7 +444,7 @@ impl Store {
         self.recently_used_store.put_with_flags(
             writer,
             *time,
-            &Value::Blob(obj_id_ser.as_slice()),
+            &Value::Blob(block_id_ser.as_slice()),
             flag,
         )
     }
@@ -491,16 +499,16 @@ mod test {
         now -= 200;
         // TODO: fix the LMDB bug that is triggered with x max set to 86 !!!
         for x in 1..85 {
-            let obj = ObjectV0 {
+            let block = BlockV0 {
                 children: Vec::new(),
                 deps: ObjectDeps::ObjectIdList(Vec::new()),
                 expiry: None,
                 content: vec![x; 10],
             };
-            let obj_id = store.put(&Object::V0(obj.clone()));
-            println!("#{} -> objId {:?}", x, obj_id);
+            let block_id = store.put(&Block::V0(block.clone()));
+            println!("#{} -> objId {:?}", x, block_id);
             store
-                .has_been_synced(&obj_id, Some(now + x as u32))
+                .has_been_synced(&block_id, Some(now + x as u32))
                 .unwrap();
         }
 
@@ -523,13 +531,13 @@ mod test {
         now -= 200;
         // TODO: fix the LMDB bug that is triggered with x max set to 86 !!!
         for x in 1..100 {
-            let obj = ObjectV0 {
+            let block = BlockV0 {
                 children: Vec::new(),
                 deps: ObjectDeps::ObjectIdList(Vec::new()),
                 expiry: None,
                 content: vec![x; 10],
             };
-            let obj_id = store.put(&Object::V0(obj.clone()));
+            let obj_id = store.put(&Block::V0(block.clone()));
             println!("#{} -> objId {:?}", x, obj_id);
             store.set_pin(&obj_id, true).unwrap();
             store
@@ -596,32 +604,32 @@ mod test {
             now + 5,
             now + 10,
         ];
-        let mut listObjId: Vec<ObjectId> = Vec::with_capacity(11);
+        let mut block_ids: Vec<ObjectId> = Vec::with_capacity(11);
         println!("now {}", now);
 
         let mut i = 0u8;
         for expiry in list {
             //let i: u8 = (expiry + 10 - now).try_into().unwrap();
-            let obj = ObjectV0 {
+            let block = BlockV0 {
                 children: Vec::new(),
                 deps: ObjectDeps::ObjectIdList(Vec::new()),
                 expiry: Some(expiry),
                 content: [i].to_vec(),
             };
-            let obj_id = store.put(&Object::V0(obj.clone()));
-            println!("#{} -> objId {:?}", i, obj_id);
-            listObjId.push(obj_id);
+            let block_id = store.put(&Block::V0(block.clone()));
+            println!("#{} -> objId {:?}", i, block_id);
+            block_ids.push(block_id);
             i += 1;
         }
 
         store.remove_expired();
 
-        assert!(store.get(listObjId.get(0).unwrap()).is_err());
-        assert!(store.get(listObjId.get(1).unwrap()).is_err());
-        assert!(store.get(listObjId.get(2).unwrap()).is_err());
-        assert!(store.get(listObjId.get(5).unwrap()).is_err());
-        assert!(store.get(listObjId.get(6).unwrap()).is_ok());
-        assert!(store.get(listObjId.get(7).unwrap()).is_ok());
+        assert!(store.get(block_ids.get(0).unwrap()).is_err());
+        assert!(store.get(block_ids.get(1).unwrap()).is_err());
+        assert!(store.get(block_ids.get(2).unwrap()).is_err());
+        assert!(store.get(block_ids.get(5).unwrap()).is_err());
+        assert!(store.get(block_ids.get(6).unwrap()).is_ok());
+        assert!(store.get(block_ids.get(7).unwrap()).is_ok());
 
         //store.list_all();
     }
@@ -644,32 +652,32 @@ mod test {
             now - 2,
             now - 2, //#5 should be removed, and above
         ];
-        let mut listObjId: Vec<ObjectId> = Vec::with_capacity(6);
+        let mut block_ids: Vec<ObjectId> = Vec::with_capacity(6);
         println!("now {}", now);
 
         let mut i = 0u8;
         for expiry in list {
             //let i: u8 = (expiry + 10 - now).try_into().unwrap();
-            let obj = ObjectV0 {
+            let block = BlockV0 {
                 children: Vec::new(),
                 deps: ObjectDeps::ObjectIdList(Vec::new()),
                 expiry: Some(expiry),
                 content: [i].to_vec(),
             };
-            let obj_id = store.put(&Object::V0(obj.clone()));
-            println!("#{} -> objId {:?}", i, obj_id);
-            listObjId.push(obj_id);
+            let block_id = store.put(&Block::V0(block.clone()));
+            println!("#{} -> objId {:?}", i, block_id);
+            block_ids.push(block_id);
             i += 1;
         }
 
         store.remove_expired();
 
-        assert!(store.get(listObjId.get(0).unwrap()).is_err());
-        assert!(store.get(listObjId.get(1).unwrap()).is_err());
-        assert!(store.get(listObjId.get(2).unwrap()).is_err());
-        assert!(store.get(listObjId.get(3).unwrap()).is_err());
-        assert!(store.get(listObjId.get(4).unwrap()).is_err());
-        assert!(store.get(listObjId.get(5).unwrap()).is_err());
+        assert!(store.get(block_ids.get(0).unwrap()).is_err());
+        assert!(store.get(block_ids.get(1).unwrap()).is_err());
+        assert!(store.get(block_ids.get(2).unwrap()).is_err());
+        assert!(store.get(block_ids.get(3).unwrap()).is_err());
+        assert!(store.get(block_ids.get(4).unwrap()).is_err());
+        assert!(store.get(block_ids.get(5).unwrap()).is_err());
     }
 
     #[test]
@@ -685,7 +693,7 @@ mod test {
     }
 
     #[test]
-    pub fn test_store_object() {
+    pub fn test_store_block() {
         let path_str = "test-env";
         let root = Builder::new().prefix(path_str).tempdir().unwrap();
 
@@ -696,28 +704,28 @@ mod test {
 
         let store = Store::open(root.path(), key);
 
-        let obj = ObjectV0 {
+        let block = BlockV0 {
             children: Vec::new(),
             deps: ObjectDeps::ObjectIdList(Vec::new()),
             expiry: None,
             content: b"abc".to_vec(),
         };
 
-        let obj_id = store.put(&Object::V0(obj.clone()));
+        let block_id = store.put(&Block::V0(block.clone()));
 
-        println!("ObjectId: {:?}", obj_id);
+        println!("ObjectId: {:?}", block_id);
         assert_eq!(
-            obj_id,
+            block_id,
             Digest::Blake3Digest32([
                 155, 83, 186, 17, 95, 10, 80, 31, 111, 24, 250, 64, 8, 145, 71, 193, 103, 246, 202,
                 28, 202, 144, 63, 65, 85, 229, 136, 85, 202, 34, 13, 85
             ])
         );
 
-        let objres = store.get(&obj_id).unwrap();
+        let block_res = store.get(&block_id).unwrap();
 
-        println!("Object: {:?}", objres);
-        assert_eq!(objres, Object::V0(obj));
+        println!("Block: {:?}", block_res);
+        assert_eq!(block_res, Block::V0(block));
     }
 
     #[test]

@@ -29,7 +29,7 @@ pub enum SubAck {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct ChangeV0 {
     /// Object with encrypted content
-    pub content: Object,
+    pub content: Block,
 
     /// Encrypted key for the Commit object in content
     /// The key is encrypted using ChaCha20:
@@ -74,7 +74,7 @@ pub struct EventV0 {
     pub content: EventContentV0,
 
     /// Signature over content by topic key
-    pub sig: Signature,
+    pub sig: Sig,
 }
 
 /// Pub/sub event published in a topic
@@ -179,7 +179,7 @@ pub struct PeerAdvertV0 {
     pub content: PeerAdvertContentV0,
 
     /// Signature over content by peer's private key
-    pub sig: Signature,
+    pub sig: Sig,
 
     /// Time-to-live, decremented at each hop
     pub ttl: u8,
@@ -238,7 +238,7 @@ pub struct ClientAuthV0 {
     pub content: ClientAuthContentV0,
 
     /// Signature by device key
-    pub sig: Signature,
+    pub sig: Sig,
 }
 
 /// Client authentication
@@ -260,7 +260,7 @@ pub struct AddUserV0 {
     pub content: AddUserContentV0,
 
     /// Signature by admin key
-    pub sig: Signature,
+    pub sig: Sig,
 }
 
 /// Add user account
@@ -281,7 +281,7 @@ pub struct DelUserV0 {
     pub content: DelUserContentV0,
 
     /// Signature by admin key
-    pub sig: Signature,
+    pub sig: Sig,
 }
 
 /// Delete user account
@@ -302,7 +302,7 @@ pub struct AuthorizeDeviceKeyV0 {
     pub content: AuthorizeDeviceKeyContentV0,
 
     /// Signature by user key
-    pub sig: Signature,
+    pub sig: Sig,
 }
 
 /// Authorize device key
@@ -324,7 +324,7 @@ pub struct RevokeDeviceKeyV0 {
     pub content: RevokeDeviceKeyContentV0,
 
     /// Signature by user key
-    pub sig: Signature,
+    pub sig: Sig,
 }
 
 /// Revoke device key
@@ -377,7 +377,7 @@ pub enum ObjectGet {
 /// Request to store an object
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct ObjectPutV0 {
-    pub object: Object,
+    pub object: Block,
 }
 
 /// Request to store an object
@@ -519,7 +519,7 @@ pub enum Result {
 /// Content of AppResponseV0
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub enum AppResponseContentV0 {
-    Object(Object),
+    Object(Block),
 }
 
 /// Response to an AppRequest
@@ -653,7 +653,7 @@ pub enum ExtRequest {
 /// Content of ExtResponseV0
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub enum ExtResponseContentV0 {
-    Object(Object),
+    Object(Block),
     EventResp(EventResp),
     Event(Event),
 }

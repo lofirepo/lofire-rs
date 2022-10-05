@@ -45,7 +45,7 @@ pub struct TopicAdvertV0 {
     pub content: TopicAdvertContentV0,
 
     /// Signature over content by topic key
-    pub sig: Signature,
+    pub sig: Sig,
 }
 
 /// Topic advertisement by a publisher
@@ -162,7 +162,7 @@ pub struct ObjectResultV0 {
     pub path: Vec<PeerId>,
 
     /// Resulting Object(s)
-    pub payload: Vec<Object>,
+    pub payload: Vec<Block>,
 }
 
 /// Response to an Object request
@@ -236,7 +236,7 @@ pub enum OverlayRequest {
 /// Content of OverlayResponseV0
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub enum OverlayResponseContentV0 {
-    Object(Object),
+    Object(Block),
     EventResp(EventResp),
     Event(Event),
 }

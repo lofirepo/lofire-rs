@@ -123,7 +123,7 @@ impl Branch {
             // load body & check if it's the Branch commit at the root
             let is_root = match commit.load_body(store) {
                 Ok(body) => body.to_type() == CommitType::Branch,
-                Err(CommitLoadError::MissingObjects(m)) => {
+                Err(CommitLoadError::MissingBlocks(m)) => {
                     missing.extend(m);
                     false
                 }
@@ -156,7 +156,7 @@ impl Branch {
                                 )?;
                             }
                         }
-                        Err(CommitLoadError::MissingObjects(m)) => {
+                        Err(CommitLoadError::MissingBlocks(m)) => {
                             missing.extend(m);
                         }
                         Err(e) => return Err(e),
@@ -165,25 +165,6 @@ impl Branch {
             }
             Ok(their_head_found)
         }
-        /*
-                fn compare_branch(
-                    id: ObjectId,
-                    store: &Store,
-                    our_commits: &HashSet<ObjectId>,
-                    visited: &mut HashSet<ObjectId>,
-                    missing: &mut HashSet<ObjectId>,
-                ) /*-> Result<(), CommitLoadError>*/
-                {
-                    let node = match Tree::load(id, None, store) {
-                        Ok(n) => n,
-                        Err(m) => {
-                            missing.extend(m);
-                            return; //Err(CommitLoadError::MissingObjects(m));
-                        }
-                    };
-                    for dep in node.root() {}
-                }
-        */
 
         // missing commits from our branch
         let mut missing = HashSet::new();
@@ -257,15 +238,14 @@ mod test {
 
     use crate::branch::*;
     use crate::commit::*;
+    use crate::object::*;
     use crate::repo;
     use crate::store::*;
-    use crate::tree::*;
-    use crate::types::*;
 
     #[test]
     pub fn test_branch() {
         fn add_obj(
-            content: Vec<u8>,
+            content: ObjectContent,
             deps: Vec<ObjectId>,
             expiry: Option<Timestamp>,
             repo_pubkey: PubKey,
@@ -273,7 +253,7 @@ mod test {
             store: &Store,
         ) -> ObjectRef {
             let max_object_size = 4000;
-            let tree = Tree::new(
+            let tree = Object::new(
                 content,
                 deps,
                 expiry,
@@ -283,7 +263,7 @@ mod test {
             );
 
             tree.save(store);
-            tree.root_ref().unwrap()
+            tree.reference().unwrap()
         }
 
         fn add_commit(
@@ -322,10 +302,8 @@ mod test {
             )
             .unwrap();
             //println!("commit: {:?}", commit);
-            let commit_ser = serde_bare::to_vec(&commit).unwrap();
-
             add_obj(
-                commit_ser,
+                ObjectContent::Commit(commit),
                 obj_deps,
                 expiry,
                 repo_pubkey,
@@ -344,9 +322,15 @@ mod test {
             let deps = vec![];
             let expiry = None;
             let body = CommitBody::Branch(branch);
-            println!("body: {:?}", body);
-            let body_ser = serde_bare::to_vec(&body).unwrap();
-            add_obj(body_ser, deps, expiry, repo_pubkey, repo_secret, store)
+            //println!("body: {:?}", body);
+            add_obj(
+                ObjectContent::CommitBody(body),
+                deps,
+                expiry,
+                repo_pubkey,
+                repo_secret,
+                store,
+            )
         }
 
         fn add_body_trans(
@@ -358,9 +342,15 @@ mod test {
             let expiry = None;
             let content = [7u8; 777].to_vec();
             let body = CommitBody::Transaction(Transaction::V0(content));
-            println!("body: {:?}", body);
-            let body_ser = serde_bare::to_vec(&body).unwrap();
-            add_obj(body_ser, deps, expiry, repo_pubkey, repo_secret, store)
+            //println!("body: {:?}", body);
+            add_obj(
+                ObjectContent::CommitBody(body),
+                deps,
+                expiry,
+                repo_pubkey,
+                repo_secret,
+                store,
+            )
         }
 
         fn add_body_ack(
@@ -371,9 +361,15 @@ mod test {
         ) -> ObjectRef {
             let expiry = None;
             let body = CommitBody::Ack(Ack::V0());
-            println!("body: {:?}", body);
-            let body_ser = serde_bare::to_vec(&body).unwrap();
-            add_obj(body_ser, deps, expiry, repo_pubkey, repo_secret, store)
+            //println!("body: {:?}", body);
+            add_obj(
+                ObjectContent::CommitBody(body),
+                deps,
+                expiry,
+                repo_pubkey,
+                repo_secret,
+                store,
+            )
         }
 
         let root = tempfile::Builder::new()

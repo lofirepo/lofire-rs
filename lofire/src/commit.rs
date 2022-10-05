@@ -1,20 +1,20 @@
 //! Commit
 
 use debug_print::*;
-use ed25519_dalek::{Signature as DalekSig, *};
+use ed25519_dalek::*;
 
 use std::collections::HashSet;
 use std::iter::FromIterator;
 
+use crate::object::*;
 use crate::store::*;
-use crate::tree::*;
-use crate::types::{Signature as Sig, *};
+use crate::types::*;
 
 #[derive(Debug)]
 pub enum CommitLoadError {
-    TreeParseError(ObjectId),
-    DeserializeError(ObjectId),
-    MissingObjects(Vec<ObjectId>),
+    MissingBlocks(Vec<BlockId>),
+    BlockParseError(BlockId),
+    DeserializeError,
 }
 
 #[derive(Debug)]
@@ -120,18 +120,20 @@ impl Commit {
     /// Load commit from store
     pub fn load(commit_ref: ObjectRef, store: &Store) -> Result<Commit, CommitLoadError> {
         let (id, key) = (commit_ref.id, commit_ref.key);
-        match Tree::load(id, Some(key), store) {
+        match Object::load(id, Some(key), store) {
             Ok(obj) => {
-                let content_ser = obj
+                let content = obj
                     .content()
-                    .map_err(|_e| CommitLoadError::TreeParseError(id))?;
-                let mut commit: Commit = serde_bare::from_slice(content_ser.as_slice())
-                    .map_err(|_e| CommitLoadError::DeserializeError(id))?;
+                    .map_err(|_e| CommitLoadError::BlockParseError(id))?;
+                let mut commit = match content {
+                    ObjectContent::Commit(c) => c,
+                    _ => return Err(CommitLoadError::DeserializeError),
+                };
                 commit.set_id(id);
                 commit.set_key(key);
                 Ok(commit)
             }
-            Err(missing) => Err(CommitLoadError::MissingObjects(missing)),
+            Err(missing) => Err(CommitLoadError::MissingBlocks(missing)),
         }
     }
 
@@ -139,13 +141,15 @@ impl Commit {
     pub fn load_body(&self, store: &Store) -> Result<CommitBody, CommitLoadError> {
         let content = self.content();
         let (id, key) = (content.body.id, content.body.key);
-        let tree = Tree::load(id.clone(), Some(key.clone()), store)
-            .map_err(|missing| CommitLoadError::MissingObjects(missing))?;
-        let body_ser = tree
+        let obj = Object::load(id.clone(), Some(key.clone()), store)
+            .map_err(|missing| CommitLoadError::MissingBlocks(missing))?;
+        let content = obj
             .content()
-            .map_err(|_e| CommitLoadError::TreeParseError(id))?;
-        serde_bare::from_slice(body_ser.as_slice())
-            .map_err(|_e| CommitLoadError::DeserializeError(id))
+            .map_err(|_e| CommitLoadError::BlockParseError(id))?;
+        match content {
+            ObjectContent::CommitBody(body) => Ok(body),
+            _ => Err(CommitLoadError::DeserializeError),
+        }
     }
 
     /// Get ID of parent `Object`
@@ -231,7 +235,7 @@ impl Commit {
         let sig_bytes = match c.sig {
             Sig::Ed25519Sig(ss) => [ss[0], ss[1]].concat(),
         };
-        let sig = DalekSig::from_bytes(&sig_bytes)?;
+        let sig = Signature::from_bytes(&sig_bytes)?;
         pk.verify_strict(&content_ser, &sig)
     }
 
@@ -276,7 +280,7 @@ impl Commit {
             // load body & check if it's the Branch commit at the root
             let is_root = match commit.load_body(store) {
                 Ok(body) => body.to_type() == CommitType::Branch,
-                Err(CommitLoadError::MissingObjects(m)) => {
+                Err(CommitLoadError::MissingBlocks(m)) => {
                     missing.extend(m);
                     false
                 }
@@ -291,7 +295,7 @@ impl Commit {
                         Ok(c) => {
                             load_branch(&c, store, visited, missing)?;
                         }
-                        Err(CommitLoadError::MissingObjects(m)) => {
+                        Err(CommitLoadError::MissingBlocks(m)) => {
                             missing.extend(m);
                         }
                         Err(e) => return Err(e),
@@ -306,7 +310,7 @@ impl Commit {
         load_branch(self, store, &mut visited, &mut missing)?;
 
         if !missing.is_empty() {
-            return Err(CommitLoadError::MissingObjects(Vec::from_iter(missing)));
+            return Err(CommitLoadError::MissingBlocks(Vec::from_iter(missing)));
         }
         Ok(Vec::from_iter(visited))
     }
@@ -409,7 +413,7 @@ mod test {
 
         match commit.load_body(&store) {
             Ok(_b) => panic!("Body should not exist"),
-            Err(CommitLoadError::MissingObjects(missing)) => {
+            Err(CommitLoadError::MissingBlocks(missing)) => {
                 assert_eq!(missing.len(), 1);
             }
             Err(e) => panic!("Commit verify error: {:?}", e),
@@ -425,7 +429,7 @@ mod test {
 
         match commit.verify_deps(&store) {
             Ok(_) => panic!("Commit should not be Ok"),
-            Err(CommitLoadError::MissingObjects(missing)) => {
+            Err(CommitLoadError::MissingBlocks(missing)) => {
                 assert_eq!(missing.len(), 1);
             }
             Err(e) => panic!("Commit verify error: {:?}", e),
@@ -433,7 +437,7 @@ mod test {
 
         match commit.verify(&branch, &store) {
             Ok(_) => panic!("Commit should not be Ok"),
-            Err(CommitVerifyError::BodyLoadError(CommitLoadError::MissingObjects(missing))) => {
+            Err(CommitVerifyError::BodyLoadError(CommitLoadError::MissingBlocks(missing))) => {
                 assert_eq!(missing.len(), 1);
             }
             Err(e) => panic!("Commit verify error: {:?}", e),
