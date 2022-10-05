@@ -3,7 +3,7 @@
 //! Corresponds to the BARE schema
 
 use lofire::types::*;
-use lofire_net::types::*;
+use lofire_broker::types::*;
 use lofire_repo::types::*;
 use serde::{Deserialize, Serialize};
 

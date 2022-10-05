@@ -2,7 +2,8 @@
 members = [
   "lofire",
   "lofire-repo",
-  "lofire-net",
+  "lofire-broker",
+  "lofire-p2p",
+  "lofire-demo",
   "lofire-node",
-  "lofire-app",
 ]
