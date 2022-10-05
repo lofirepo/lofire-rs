@@ -8,7 +8,6 @@ use fastbloom_rs::{BloomFilter as Filter, Membership};
 use crate::commit::*;
 use crate::store::*;
 use crate::types::*;
-use lofire::types::*;
 
 impl MemberV0 {
     /// New member
@@ -262,7 +261,6 @@ mod test {
     use crate::store::*;
     use crate::tree::*;
     use crate::types::*;
-    use lofire::types::*;
 
     #[test]
     pub fn test_branch() {

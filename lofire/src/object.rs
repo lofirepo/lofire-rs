@@ -1,7 +1,6 @@
 //! Immutable Object
 
 use crate::types::*;
-use lofire::types::*;
 
 impl ObjectV0 {
     pub fn new(

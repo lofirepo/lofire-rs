@@ -55,16 +55,36 @@
           pname = "lofire";
           buildAndTestSubdir = "./lofire";
         };
-        lofire-repo = myBuildRustPackage rec {
-          pname = "lofire-repo";
-          buildAndTestSubdir = "./lofire-repo";
+        lofire-broker = myBuildRustPackage rec {
+          pname = "lofire-broker";
+          buildAndTestSubdir = "./lofire-broker";
+        };
+        lofire-p2p = myBuildRustPackage rec {
+          pname = "lofire-p2p";
+          buildAndTestSubdir = "./lofire-p2p";
         };
         lofire-node = myBuildRustPackage rec {
           pname = "lofire-node";
           buildAndTestSubdir = "./lofire-node";
         };
-        default = lofire;
+        lofire-demo = myBuildRustPackage rec {
+          pname = "lofire-demo";
+          buildAndTestSubdir = "./lofire-demo";
+        };
+        default = lofire-node;
       };
       defaultPackage = packages.default; # compat
+
+      apps = rec {
+          lofire-node = utils.lib.mkApp {
+            drv = packages.lofire-node;
+            exePath = "/bin/lofire-node";
+          };
+          lofire-demo = utils.lib.mkApp  {
+            drv = packages.lofire-demo;
+            exePath = "/bin/lofire-demo";
+          };
+          default = lofire-node;
+      };
     });
 }

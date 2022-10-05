@@ -7,7 +7,6 @@ use chacha20::ChaCha20;
 
 use crate::store::*;
 use crate::types::*;
-use lofire::types::*;
 
 /// Size of a serialized empty Object
 pub const EMPTY_OBJECT_SIZE: usize = 12;
@@ -429,7 +428,6 @@ mod test {
     use crate::store::*;
     use crate::tree::*;
     use crate::types::*;
-    use lofire::types::*;
 
     // Those constants are calculated with Store::get_max_value_size
 

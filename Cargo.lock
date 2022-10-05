@@ -668,9 +668,15 @@ version = "0.1.0"
 dependencies = [
  "blake3",
  "chacha20",
+ "debug_print",
+ "ed25519-dalek",
+ "fastbloom-rs",
+ "rand",
+ "rkv",
  "serde",
  "serde_bare",
  "serde_bytes",
+ "tempfile",
 ]
 
 [[package]]
@@ -690,7 +696,6 @@ dependencies = [
  "blake3",
  "chacha20",
  "lofire",
- "lofire-repo",
  "serde",
  "serde_bare",
  "serde_bytes",
@@ -714,28 +719,9 @@ dependencies = [
  "chacha20",
  "lofire",
  "lofire-broker",
- "lofire-repo",
  "serde",
  "serde_bare",
  "serde_bytes",
-]
-
-[[package]]
-name = "lofire-repo"
-version = "0.1.0"
-dependencies = [
- "blake3",
- "chacha20",
- "debug_print",
- "ed25519-dalek",
- "fastbloom-rs",
- "lofire",
- "rand",
- "rkv",
- "serde",
- "serde_bare",
- "serde_bytes",
- "tempfile",
 ]
 
 [[package]]

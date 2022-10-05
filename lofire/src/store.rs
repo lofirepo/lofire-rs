@@ -8,7 +8,6 @@ use std::sync::{Arc, RwLock};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use crate::types::*;
-use lofire::types::*;
 use rkv::backend::{
     BackendDatabaseFlags, BackendFlags, BackendIter, BackendWriteFlags, DatabaseFlags, Lmdb,
     LmdbDatabase, LmdbDatabaseFlags, LmdbEnvironment, LmdbRwTransaction, LmdbWriteFlags,
@@ -472,7 +471,6 @@ mod test {
 
     use crate::store::Store;
     use crate::types::*;
-    use lofire::types::*;
     use rkv::backend::{BackendInfo, BackendStat, Lmdb, LmdbEnvironment};
     use rkv::{Manager, Rkv, StoreOptions, Value};
     #[allow(unused_imports)]

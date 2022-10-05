@@ -1,7 +1,6 @@
 //! Repository
 
 use crate::types::*;
-use lofire::types::*;
 
 impl RepositoryV0 {
     pub fn new(

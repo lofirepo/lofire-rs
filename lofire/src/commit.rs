@@ -8,8 +8,7 @@ use std::iter::FromIterator;
 
 use crate::store::*;
 use crate::tree::*;
-use crate::types::*;
-use lofire::types::{Signature as Sig, *};
+use crate::types::{Signature as Sig, *};
 
 #[derive(Debug)]
 pub enum CommitLoadError {
@@ -337,7 +336,6 @@ mod test {
     use crate::commit::*;
     use crate::store::*;
     use crate::types::*;
-    use lofire::types::*;
 
     #[test]
     pub fn test_commit() {
