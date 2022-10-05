@@ -69,47 +69,6 @@ pub enum RelTime {
     Days(u8),
 }
 
-//
-// COMMON TYPES FOR MESSAGES
-//
-
-/// Peer ID: public key of node
-pub type PeerId = PubKey;
-
-/// IPv4 address
-pub type IPv4 = [u8; 4];
-
-/// IPv6 address
-pub type IPv6 = [u8; 16];
-
-/// IP address
-#[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq, Eq)]
-pub enum IP {
-    IPv4(IPv4),
-    IPv6(IPv6),
-}
-
-/// IP transport protocol
-#[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq, Eq)]
-pub enum IPTransportProtocol {
-    TLS,
-    QUIC,
-}
-
-/// IP transport address
-#[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq, Eq)]
-pub struct IPTransportAddr {
-    pub ip: IP,
-    pub port: u16,
-    pub protocol: IPTransportProtocol,
-}
-
-/// Network address
-#[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq, Eq)]
-pub enum NetAddr {
-    IPTransport(IPTransportAddr),
-}
-
 /// Bloom filter (variable size)
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
 pub struct BloomFilter {

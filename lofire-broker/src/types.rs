@@ -1,207 +1,13 @@
-//! LoFiRe network common data types (for apps and external users)
+//! LoFiRe broker protocol types
 //!
 //! Corresponds to the BARE schema
 
 use lofire::types::*;
+use lofire_p2p::types::*;
 use serde::{Deserialize, Serialize};
 
 //
-// OVERLAY MESSAGES common to app and broker
-//
-
-/// Topic subscription acknowledgement by a publisher
-///
-/// Sent to all subscribers in an Event.
-#[derive(Clone, Copy, Debug, Serialize, Deserialize)]
-pub struct SubAckV0 {
-    /// SubReq ID to acknowledge
-    pub id: u64,
-}
-
-/// Topic subscription acknowledgement by a publisher
-#[derive(Clone, Copy, Debug, Serialize, Deserialize)]
-pub enum SubAck {
-    V0(SubAckV0),
-}
-
-/// Branch change notification
-/// Contains a chunk of a newly added Commit or File referenced by a commit.
-#[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct ChangeV0 {
-    /// Object with encrypted content
-    pub content: Block,
-
-    /// Encrypted key for the Commit object in content
-    /// The key is encrypted using ChaCha20:
-    /// - key: BLAKE3 derive_key ("LoFiRe Event ObjectRef ChaCha20 key",
-    ///                           branch_pubkey + branch_secret + publisher_pubkey)
-    /// - nonce: commit_seq
-    pub key: Option<SymKey>,
-}
-
-/// Body of EventContentV0
-#[derive(Clone, Copy, Debug, Serialize, Deserialize)]
-pub enum EventBodyV0 {
-    SubAck,
-    ChangeV0,
-}
-
-/// Content of EventV0
-#[derive(Clone, Copy, Debug, Serialize, Deserialize)]
-pub struct EventContentV0 {
-    /// Pub/sub topic
-    pub topic: PubKey,
-
-    /// Publisher pubkey hash
-    /// BLAKE3 keyed hash over branch member pubkey
-    /// - key: BLAKE3 derive_key ("LoFiRe Event publisher BLAKE3 key",
-    ///                           repo_pubkey + repo_secret +
-    ///                           branch_pubkey + branch_secret)
-    pub publisher: Digest,
-
-    /// Commit sequence number of publisher
-    pub seq: u32,
-
-    /// Event body
-    pub body: EventBodyV0,
-}
-
-/// Pub/sub event published in a topic
-///
-/// Forwarded along event routing table entries
-#[derive(Clone, Copy, Debug, Serialize, Deserialize)]
-pub struct EventV0 {
-    pub content: EventContentV0,
-
-    /// Signature over content by topic key
-    pub sig: Sig,
-}
-
-/// Pub/sub event published in a topic
-#[derive(Clone, Copy, Debug, Serialize, Deserialize)]
-pub enum Event {
-    V0(EventV0),
-}
-
-/// Request latest events corresponding to the branch heads in a pub/sub topic
-///
-/// In response an Event is sent for each commit chunk that belong to branch heads
-/// that are not present in the requestor's known heads
-#[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct BranchHeadsReqV0 {
-    /// Topic public key of the branch
-    pub topic: PubKey,
-
-    /// Known heads
-    pub known_heads: Vec<ObjectId>,
-}
-
-/// Request latest events corresponding to the branch heads in a pub/sub topic
-#[derive(Clone, Debug, Serialize, Deserialize)]
-pub enum BranchHeadsReq {
-    V0(BranchHeadsReqV0),
-}
-
-/// Branch synchronization request
-///
-/// In response a stream of Objects are sent
-/// that are not present in the requestor's known heads and commits
-#[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct BranchSyncReqV0 {
-    /// Heads to request, including all their dependencies
-    pub heads: Vec<ObjectId>,
-
-    /// Fully synchronized until these commits
-    pub known_heads: Vec<ObjectId>,
-
-    /// Known commit IDs since known_heads
-    pub known_commits: BloomFilter,
-}
-
-/// Branch synchronization request
-#[derive(Clone, Debug, Serialize, Deserialize)]
-pub enum BranchSyncReq {
-    V0(BranchSyncReqV0),
-}
-
-/// Events the responder has, see EventRespV0
-#[derive(Clone, Copy, Debug, Serialize, Deserialize)]
-pub struct HaveEventsV0 {
-    /// Publisher ID
-    pub publisher: Digest,
-
-    /// First sequence number to send
-    pub from: u32,
-
-    /// Last sequence number to send
-    pub to: u32,
-}
-
-/// Response to an EventReq
-#[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct EventRespV0 {
-    /// Events the responder has
-    pub have: Vec<HaveEventsV0>,
-}
-
-/// Response to an EventReq
-#[derive(Clone, Debug, Serialize, Deserialize)]
-pub enum EventResp {
-    V0(EventRespV0),
-}
-
-/// Content of PeerAdvertV0
-#[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct PeerAdvertContentV0 {
-    /// Peer ID
-    pub peer: PeerId,
-
-    /// Topic subscriptions
-    pub subs: BloomFilter128,
-
-    /// Network addresses
-    pub address: Vec<NetAddr>,
-
-    /// Version number
-    pub version: u16,
-
-    /// App-specific metadata (profile, cryptographic material, etc)
-    #[serde(with = "serde_bytes")]
-    pub metadata: Vec<u8>,
-}
-
-/// Peer advertisement
-///
-/// Sent periodically across the overlay along random walks.
-#[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct PeerAdvertV0 {
-    /// Peer advertisement content
-    pub content: PeerAdvertContentV0,
-
-    /// Signature over content by peer's private key
-    pub sig: Sig,
-
-    /// Time-to-live, decremented at each hop
-    pub ttl: u8,
-}
-
-/// Peer advertisement
-#[derive(Clone, Debug, Serialize, Deserialize)]
-pub enum PeerAdvert {
-    V0(PeerAdvertV0),
-}
-
-/// Overlay ID
-///
-/// - for public overlays that need to be discovered by public key:
-///   BLAKE3 hash over the repository public key
-/// - for private overlays:
-///   BLAKE3 keyed hash over the repository public key
-///   - key: BLAKE3 derive_key ("LoFiRe OverlayId BLAKE3 key", repo_secret)
-pub type OverlayId = Digest;
-
-//
-// APP MESSAGES
+// BROKER PROTOCOL
 //
 
 /// Server hello sent upon a client connection
@@ -519,7 +325,7 @@ pub enum Result {
 /// Content of AppResponseV0
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub enum AppResponseContentV0 {
-    Object(Block),
+    Block(Block),
 }
 
 /// Response to an AppRequest
@@ -653,7 +459,7 @@ pub enum ExtRequest {
 /// Content of ExtResponseV0
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub enum ExtResponseContentV0 {
-    Object(Block),
+    Block(Block),
     EventResp(EventResp),
     Event(Event),
 }
@@ -735,4 +541,82 @@ pub struct ObjectLinkV0 {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub enum ObjectLink {
     V0(ObjectLinkV0),
+}
+
+//
+// BROKER STORAGE
+//
+
+/// A topic this node subscribed to in an overlay
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct TopicV0 {
+    /// Topic public key ID
+    pub id: PubKey,
+
+    /// Topic private key for publishers
+    pub priv_key: Option<PrivKey>,
+
+    /// Set of branch heads
+    pub heads: Vec<ObjectId>,
+
+    /// Number of local users that subscribed to the topic
+    pub users: u32,
+}
+
+/// A topic this node subscribed to in an overlay
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub enum Topic {
+    V0(TopicV0),
+}
+
+/// An overlay this node joined
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct OverlayV0 {
+    /// Overlay ID
+    pub id: OverlayId,
+
+    /// Overlay secret
+    pub secret: SymKey,
+
+    /// Known peers with connected flag
+    pub peers: Vec<PeerAdvert>,
+
+    /// Topics this node subscribed to in the overlay
+    pub topics: Vec<Topic>,
+
+    /// Number of local users that joined the overlay
+    pub users: u32,
+
+    /// Last access by any user
+    pub last_access: Timestamp,
+}
+
+/// An overlay this node joined
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub enum Overlay {
+    V0(OverlayV0),
+}
+
+/// User account
+///
+/// Stored as user_pubkey -> Account
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct AccountV0 {
+    /// Authorized device pub keys
+    pub authorized_keys: Vec<PubKey>,
+
+    /// Admins can add/remove user accounts
+    pub admin: bool,
+
+    /// Overlays joined
+    pub overlays: Vec<Overlay>,
+
+    /// Topics joined, with publisher flag
+    pub topics: Vec<Topic>,
+}
+
+/// User account
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub enum Account {
+    V0(AccountV0),
 }
