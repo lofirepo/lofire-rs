@@ -14,6 +14,12 @@ pub struct OverlayV0 {
     /// Overlay secret
     pub secret: SymKey,
 
+    /// Public key of repository the overlay belongs to
+    pub repo_pubkey: Option<PubKey>,
+
+    /// Secret of repository the overlay belongs to
+    pub repo_secret: Option<SymKey>,
+
     /// Known peers with connected flag
     pub peers: Vec<PeerAdvert>,
 
@@ -48,6 +54,8 @@ impl OverlayV0 {
     pub fn new(
         id: Digest,
         secret: SymKey,
+        repo_pubkey: Option<PubKey>,
+        repo_secret: Option<SymKey>,
         peers: Vec<PeerAdvert>,
         topics: Vec<TopicId>,
         users: u32,
@@ -56,6 +64,8 @@ impl OverlayV0 {
         OverlayV0 {
             id,
             secret,
+            repo_pubkey,
+            repo_secret,
             peers,
             topics,
             users,
@@ -68,6 +78,8 @@ impl Overlay {
     pub fn new(
         id: Digest,
         secret: SymKey,
+        repo_pubkey: Option<PubKey>,
+        repo_secret: Option<SymKey>,
         peers: Vec<PeerAdvert>,
         topics: Vec<TopicId>,
         users: u32,
@@ -76,6 +88,8 @@ impl Overlay {
         Overlay::V0(OverlayV0::new(
             id,
             secret,
+            repo_pubkey,
+            repo_secret,
             peers,
             topics,
             users,
