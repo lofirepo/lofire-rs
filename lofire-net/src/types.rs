@@ -692,6 +692,14 @@ pub struct OverlayJoinV0 {
     /// Overlay secret
     pub secret: SymKey,
 
+    /// Repository the overlay belongs to.
+    /// Only set for local brokers.
+    pub repo_pubkey: Option<PubKey>,
+
+    /// Secret for the repository.
+    /// Only set for local brokers.
+    pub repo_secret: Option<SymKey>,
+
     /// Peers to connect to
     pub peers: Vec<PeerAdvert>,
 }
