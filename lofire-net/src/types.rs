@@ -30,6 +30,12 @@ pub type SessionId = u64;
 /// Topic ID: public key of the topic
 pub type TopicId = PubKey;
 
+/// User ID: user account for broker
+pub type UserId = PubKey;
+
+/// Client ID: client of a user
+pub type ClientId = PubKey;
+
 /// IPv4 address
 pub type IPv4 = [u8; 4];
 

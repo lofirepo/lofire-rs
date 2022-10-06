@@ -18,6 +18,15 @@ use rkv::{
 };
 use serde_bare::error::Error;
 
+pub enum StoreGetError {
+    NotFound,
+    StoreError,
+}
+
+pub enum StorePutError {
+    StoreError,
+}
+
 pub struct Store {
     /// the main store where all the repo blocks are stored
     main_store: SingleStore<LmdbDatabase>,
@@ -315,6 +324,36 @@ impl Store {
         writer.commit().unwrap();
 
         block_id
+    }
+
+    /// Load an account from the store.
+    pub fn get_account(&self, id: &PubKey) -> Result<Vec<u8>, StoreGetError> {
+        todo!()
+    }
+
+    /// Save an account to the store.
+    pub fn put_account(&self, id: &PubKey, account: &Vec<u8>) -> Result<(), StorePutError> {
+        todo!()
+    }
+
+    /// Load an account from the store.
+    pub fn get_overlay(&self, id: &Digest) -> Result<Vec<u8>, StoreGetError> {
+        todo!()
+    }
+
+    /// Save an account to the store.
+    pub fn put_overlay(&self, id: &Digest, account: &Vec<u8>) -> Result<(), StorePutError> {
+        todo!()
+    }
+
+    /// Load an account from the store.
+    pub fn get_topic(&self, id: &PubKey) -> Result<Vec<u8>, StoreGetError> {
+        todo!()
+    }
+
+    /// Save an account to the store.
+    pub fn put_topic(&self, id: &PubKey, account: &Vec<u8>) -> Result<(), StorePutError> {
+        todo!()
     }
 
     /// Removes the block from the storage backend.

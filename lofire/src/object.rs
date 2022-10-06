@@ -247,7 +247,7 @@ impl Object {
 
     /// Load Object from store
     ///
-    /// Returns Ok(Object) or a Err(Vec<ObjectId>) of missing Object IDs
+    /// Returns Ok(Object) or an Err(Vec<ObjectId>) of missing Object IDs
     pub fn load(id: ObjectId, key: Option<SymKey>, store: &Store) -> Result<Object, Vec<ObjectId>> {
         fn load_tree(
             parents: Vec<ObjectId>,

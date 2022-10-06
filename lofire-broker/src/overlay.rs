@@ -1,5 +1,6 @@
 //! Overlay
 
+use lofire::store::*;
 use lofire::types::*;
 use lofire_net::types::*;
 use serde::{Deserialize, Serialize};
@@ -8,7 +9,7 @@ use serde::{Deserialize, Serialize};
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct OverlayV0 {
     /// Overlay ID
-    pub id: OverlayId,
+    pub id: Digest,
 
     /// Overlay secret
     pub secret: SymKey,
@@ -30,4 +31,79 @@ pub struct OverlayV0 {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub enum Overlay {
     V0(OverlayV0),
+}
+
+pub enum OverlayLoadError {
+    NotFound,
+    StoreError,
+    DeserializeError,
+}
+
+pub enum OverlaySaveError {
+    StoreError,
+    SerializeError,
+}
+
+impl OverlayV0 {
+    pub fn new(
+        id: Digest,
+        secret: SymKey,
+        peers: Vec<PeerAdvert>,
+        topics: Vec<TopicId>,
+        users: u32,
+        last_access: Timestamp,
+    ) -> OverlayV0 {
+        OverlayV0 {
+            id,
+            secret,
+            peers,
+            topics,
+            users,
+            last_access,
+        }
+    }
+}
+
+impl Overlay {
+    pub fn new(
+        id: Digest,
+        secret: SymKey,
+        peers: Vec<PeerAdvert>,
+        topics: Vec<TopicId>,
+        users: u32,
+        last_access: Timestamp,
+    ) -> Overlay {
+        Overlay::V0(OverlayV0::new(
+            id,
+            secret,
+            peers,
+            topics,
+            users,
+            last_access,
+        ))
+    }
+
+    pub fn id(&self) -> Digest {
+        match self {
+            Overlay::V0(o) => o.id,
+        }
+    }
+
+    pub fn load(id: Digest, store: &Store) -> Result<Overlay, OverlayLoadError> {
+        let overlay_ser = store.get_overlay(&id).map_err(|e| match e {
+            StoreGetError::NotFound => OverlayLoadError::NotFound,
+            StoreGetError::StoreError => OverlayLoadError::StoreError,
+        })?;
+        serde_bare::from_slice::<Overlay>(overlay_ser.as_slice()).map_err(|e| match e {
+            _ => OverlayLoadError::DeserializeError,
+        })
+    }
+
+    pub fn save(&self, store: &Store) -> Result<(), OverlaySaveError> {
+        let overlay_ser =
+            serde_bare::to_vec(&self).map_err(|_| OverlaySaveError::SerializeError)?;
+        store
+            .put_overlay(&self.id(), &overlay_ser)
+            .map_err(|_| OverlaySaveError::StoreError)
+    }
 }
