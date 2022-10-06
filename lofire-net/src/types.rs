@@ -1049,10 +1049,10 @@ pub enum ClientHello {
     V0(ClientHelloV0),
 }
 
-/// Initiate connection - choose broker or ext protocol
+/// Start chosen protocol
 /// First message sent by the client
-pub enum InitConnection {
-    Broker(ClientHello),
+pub enum StartProtocol {
+    Auth(ClientHello),
     Ext(ExtRequest),
 }
 
