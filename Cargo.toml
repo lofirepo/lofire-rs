@@ -1,6 +1,7 @@
 [workspace]
 members = [
   "lofire",
+  "lofire-net",
   "lofire-broker",
   "lofire-p2p",
   "lofire-node",

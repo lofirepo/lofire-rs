@@ -7,8 +7,7 @@ edition = "2021"
 
 [dependencies]
 lofire = { path = "../lofire" }
+lofire-net = { path = "../lofire-net" }
 lofire-p2p = { path = "../lofire-p2p" }
-
-[dependencies.async-std]
-version = "1.7.0"
-features = ["attributes"]
+lofire-broker = { path = "../lofire-broker" }
+async-std = {  version = "1.7.0", features = ["attributes"] }

@@ -637,9 +637,9 @@ checksum = "e2abad23fbc42b3700f2f279844dc832adb2b2eb069b2df918f455c4e18cc646"
 
 [[package]]
 name = "libc"
-version = "0.2.133"
+version = "0.2.134"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c0f80d65747a3e43d1596c7c5492d95d5edddaabd45a7fcdb02b95f644164966"
+checksum = "329c933548736bc49fd575ee68c89e8be4d260064184389a5b77517cddd99ffb"
 
 [[package]]
 name = "lmdb-crypto-rs"
@@ -680,15 +680,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "lofire-app"
-version = "0.1.0"
-dependencies = [
- "async-std",
- "lofire",
- "lofire-broker",
-]
-
-[[package]]
 name = "lofire-broker"
 version = "0.1.0"
 dependencies = [
@@ -696,11 +687,31 @@ dependencies = [
  "blake3",
  "chacha20",
  "lofire",
- "lofire-p2p",
+ "lofire-net",
  "serde",
  "serde_bare",
  "serde_bytes",
  "xactor",
+]
+
+[[package]]
+name = "lofire-demo"
+version = "0.1.0"
+dependencies = [
+ "async-std",
+ "lofire",
+ "lofire-broker",
+ "lofire-net",
+]
+
+[[package]]
+name = "lofire-net"
+version = "0.1.0"
+dependencies = [
+ "lofire",
+ "serde",
+ "serde_bare",
+ "serde_bytes",
 ]
 
 [[package]]
@@ -709,6 +720,8 @@ version = "0.1.0"
 dependencies = [
  "async-std",
  "lofire",
+ "lofire-broker",
+ "lofire-net",
  "lofire-p2p",
 ]
 
@@ -719,6 +732,7 @@ dependencies = [
  "blake3",
  "chacha20",
  "lofire",
+ "lofire-net",
  "serde",
  "serde_bare",
  "serde_bytes",
@@ -763,9 +777,9 @@ checksum = "624a8340c38c1b80fd549087862da4ba43e08858af025b236e509b6649fc13d5"
 
 [[package]]
 name = "ordered-float"
-version = "3.1.0"
+version = "3.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "98ffdb14730ed2ef599c65810c15b000896e21e8776b512de0db0c3d7335cc2a"
+checksum = "129d36517b53c461acc6e1580aeb919c8ae6708a4b1eae61c4463a615d4f0411"
 dependencies = [
  "num-traits",
 ]
@@ -828,9 +842,9 @@ checksum = "eb9f9e6e233e5c4a35559a617bf40a4ec447db2e84c20b55a6f83167b7e57872"
 
 [[package]]
 name = "proc-macro2"
-version = "1.0.44"
+version = "1.0.46"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7bd7356a8122b6c4a24a82b278680c73357984ca2fc79a0f9fa6dea7dced7c58"
+checksum = "94e2ef8dbfc347b10c094890f778ee2e36ca9bb4262e86dc99cd217e35f3470b"
 dependencies = [
  "unicode-ident",
 ]
