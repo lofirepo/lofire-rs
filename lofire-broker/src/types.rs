@@ -98,7 +98,8 @@ pub enum DelClient {
 
 /// Content of `BrokerRequestV0`
 #[derive(Clone, Debug, Serialize, Deserialize)]
-pub enum BrokerRequestContentV0 {}
+pub enum BrokerRequestContentV0 {
+}
 /// Broker request
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct BrokerRequestV0 {
@@ -237,35 +238,59 @@ pub enum ObjectDel {
     V0(ObjectDelV0),
 }
 
-/// Request subscription to a topic
-///
-/// For publishers a private key also needs to be provided.
+/// Request subscription to a `Topic`
 #[derive(Clone, Copy, Debug, Serialize, Deserialize)]
 pub struct TopicSubV0 {
     /// Topic to subscribe
     pub topic: PubKey,
 
-    /// Signed `TopicAdvert` for the PeerId of the broker
+    /// Publisher need to prived a signed `TopicAdvert` for the PeerId of the broker
     pub advert: Option<TopicAdvert>,
 }
 
-/// Request subscription to a topic
+/// Request subscription to a `Topic`
 #[derive(Clone, Copy, Debug, Serialize, Deserialize)]
 pub enum TopicSub {
     V0(TopicSubV0),
 }
 
-/// Request unsubscription from a topic
+/// Request unsubscription from a `Topic`
 #[derive(Clone, Copy, Debug, Serialize, Deserialize)]
 pub struct TopicUnsubV0 {
     /// Topic to unsubscribe
     pub topic: PubKey,
 }
 
-/// Request unsubscription from a topic
+/// Request unsubscription from a `Topic`
 #[derive(Clone, Copy, Debug, Serialize, Deserialize)]
 pub enum TopicUnsub {
     V0(TopicUnsubV0),
+}
+
+/// Connect to an already subscribed `Topic`, and start receiving its `Event`s
+#[derive(Clone, Copy, Debug, Serialize, Deserialize)]
+pub struct TopicConnectV0 {
+    /// Topic to connect
+    pub topic: PubKey,
+}
+
+/// Connect to an already subscribed `Topic`, and start receiving its `Event`s
+#[derive(Clone, Copy, Debug, Serialize, Deserialize)]
+pub enum TopicConnect {
+    V0(TopicConnectV0),
+}
+
+/// Disconnect from a Topic, and stop receiving its `Event`s
+#[derive(Clone, Copy, Debug, Serialize, Deserialize)]
+pub struct TopicDisconnectV0 {
+    /// Topic to disconnect
+    pub topic: PubKey,
+}
+
+/// Disconnect from a Topic, and stop receiving its `Event`s
+#[derive(Clone, Copy, Debug, Serialize, Deserialize)]
+pub enum TopicDisconnect {
+    V0(TopicDisconnectV0),
 }
 
 /// Content of `BrokerOverlayRequestV0`
@@ -275,6 +300,8 @@ pub enum BrokerOverlayRequestContentV0 {
     OverlayLeave(OverlayLeave),
     TopicSub(TopicSub),
     TopicUnsub(TopicUnsub),
+    TopicConnect(TopicConnect),
+    TopicDisconnect(TopicDisconnect),
     Event(Event),
     ObjectGet(BlockGet),
     ObjectPut(BlockPut),
