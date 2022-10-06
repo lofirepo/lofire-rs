@@ -1,5 +1,5 @@
 [package]
-name = "lofire-node"
+name = "lofire-demo"
 version = "0.1.0"
 edition = "2021"
 
@@ -8,6 +8,5 @@ edition = "2021"
 [dependencies]
 lofire = { path = "../lofire" }
 lofire-net = { path = "../lofire-net" }
-lofire-p2p = { path = "../lofire-p2p" }
 lofire-broker = { path = "../lofire-broker" }
 async-std = {  version = "1.7.0", features = ["attributes"] }

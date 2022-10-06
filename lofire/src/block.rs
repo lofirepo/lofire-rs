@@ -1,16 +1,15 @@
-//! Immutable Object
+//! Immutable Block
 
 use crate::types::*;
-use lofire::types::*;
 
-impl ObjectV0 {
+impl BlockV0 {
     pub fn new(
         children: Vec<ObjectId>,
         deps: ObjectDeps,
         expiry: Option<Timestamp>,
         content: Vec<u8>,
-    ) -> ObjectV0 {
-        ObjectV0 {
+    ) -> BlockV0 {
+        BlockV0 {
             children,
             deps,
             expiry,
@@ -19,14 +18,14 @@ impl ObjectV0 {
     }
 }
 
-impl Object {
+impl Block {
     pub fn new(
         children: Vec<ObjectId>,
         deps: ObjectDeps,
         expiry: Option<Timestamp>,
         content: Vec<u8>,
-    ) -> Object {
-        Object::V0(ObjectV0::new(children, deps, expiry, content))
+    ) -> Block {
+        Block::V0(BlockV0::new(children, deps, expiry, content))
     }
 
     /// Get the ID
@@ -39,14 +38,14 @@ impl Object {
     /// Get the deps
     pub fn deps(&self) -> ObjectDeps {
         match self {
-            Object::V0(o) => o.deps.clone(),
+            Block::V0(o) => o.deps.clone(),
         }
     }
 
     /// Get the expiry
     pub fn expiry(&self) -> Option<Timestamp> {
         match self {
-            Object::V0(o) => o.expiry,
+            Block::V0(o) => o.expiry,
         }
     }
 }

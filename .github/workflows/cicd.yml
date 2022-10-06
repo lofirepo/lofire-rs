@@ -1,7 +1,7 @@
 name: Build
 on: push
 jobs:
-  dev-shell:
+  cargo-build-test:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v2
@@ -35,15 +35,25 @@ jobs:
       - name: lofire package
         run: nix build '.#lofire'
 
-  lofire-repo-package:
+  lofire-broker-package:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v2
       - uses: nixbuild/nix-quick-install-action@v17
         with:
           nix_conf: experimental-features = nix-command flakes
-      - name: lofire-repo package
-        run: nix build '.#lofire-repo'
+      - name: lofire-broker package
+        run: nix build '.#lofire-broker'
+
+  lofire-p2p-package:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v2
+      - uses: nixbuild/nix-quick-install-action@v17
+        with:
+          nix_conf: experimental-features = nix-command flakes
+      - name: lofire-p2p package
+        run: nix build '.#lofire-p2p'
 
   lofire-node-package:
     runs-on: ubuntu-latest
@@ -54,3 +64,13 @@ jobs:
           nix_conf: experimental-features = nix-command flakes
       - name: lofire-node package
         run: nix build '.#lofire-node'
+
+  lofire-demo-package:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v2
+      - uses: nixbuild/nix-quick-install-action@v17
+        with:
+          nix_conf: experimental-features = nix-command flakes
+      - name: lofire-demo package
+        run: nix build '.#lofire-demo'

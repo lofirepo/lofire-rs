@@ -3,11 +3,18 @@ name = "lofire"
 version = "0.1.0"
 edition = "2021"
 
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+# See more keys and their definitions at
+# https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
 blake3 = "1.3.1"
 chacha20 = "0.9.0"
-serde = { version = "1.0", features = ["derive"] }
+ed25519-dalek = "1.0.1"
+rand = "0.7"
+serde = { version = "1.0.142", features = ["derive"] }
 serde_bare = "0.5.0"
+tempfile = "3"
+rkv = { git = "https://github.com/p2pcollab/rkv.git", branch = "main", features = ["lmdb"] }
 serde_bytes = "0.11.7"
+fastbloom-rs = "0.3.1"
+debug_print = "1.0.0"
