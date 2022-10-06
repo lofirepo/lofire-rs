@@ -30,6 +30,13 @@ pub type SessionId = u64;
 /// Topic ID: public key of the topic
 pub type TopicId = PubKey;
 
+/// Result codes
+#[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq, Eq)]
+pub enum Result {
+    Ok,
+    Error,
+}
+
 /// IPv4 address
 pub type IPv4 = [u8; 4];
 

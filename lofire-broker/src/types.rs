@@ -96,6 +96,41 @@ pub enum DelClient {
     V0(DelClientV0),
 }
 
+/// Content of `BrokerRequestV0`
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub enum BrokerRequestContentV0 {}
+/// Broker request
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct BrokerRequestV0 {
+    /// Request ID
+    pub id: u64,
+
+    /// Request content
+    pub content: BrokerRequestContentV0,
+}
+
+/// Broker request
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub enum BrokerRequest {
+    V0(BrokerRequestV0),
+}
+
+/// Response to a `BrokerRequest`
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct BrokerResponseV0 {
+    /// Request ID
+    pub id: u64,
+
+    /// Result (including but not limited to Result)
+    pub result: u16,
+}
+
+/// Response to a `BrokerRequest`
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub enum BrokerResponse {
+    V0(BrokerResponseV0),
+}
+
 /// Request to join an overlay
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct OverlayJoinV0 {
@@ -233,9 +268,9 @@ pub enum TopicUnsub {
     V0(TopicUnsubV0),
 }
 
-/// Content of BrokerRequestV0
+/// Content of `BrokerOverlayRequestV0`
 #[derive(Clone, Debug, Serialize, Deserialize)]
-pub enum BrokerRequestContentV0 {
+pub enum BrokerOverlayRequestContentV0 {
     OverlayJoin(OverlayJoin),
     OverlayLeave(OverlayLeave),
     TopicSub(TopicSub),
@@ -250,38 +285,31 @@ pub enum BrokerRequestContentV0 {
     BranchHeadsReq(BranchHeadsReq),
     BranchSyncReq(BranchSyncReq),
 }
-/// Broker request
+/// Broker overlay request
 #[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct BrokerRequestV0 {
+pub struct BrokerOverlayRequestV0 {
     /// Request ID
     pub id: u64,
 
     /// Request content
-    pub content: BrokerRequestContentV0,
+    pub content: BrokerOverlayRequestContentV0,
 }
 
-/// Broker request
+/// Broker overlay request
 #[derive(Clone, Debug, Serialize, Deserialize)]
-pub enum BrokerRequest {
-    V0(BrokerRequestV0),
+pub enum BrokerOverlayRequest {
+    V0(BrokerOverlayRequestV0),
 }
 
-/// Result codes
-#[derive(Clone, Copy, Debug, Serialize, Deserialize)]
-pub enum Result {
-    Ok,
-    Error,
-}
-
-/// Content of BrokerResponseV0
+/// Content of `BrokerOverlayResponseV0`
 #[derive(Clone, Debug, Serialize, Deserialize)]
-pub enum BrokerResponseContentV0 {
+pub enum BrokerOverlayResponseContentV0 {
     Block(Block),
 }
 
-/// Response to an BrokerRequest
+/// Response to a `BrokerOverlayRequest`
 #[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct BrokerResponseV0 {
+pub struct BrokerOverlayResponseV0 {
     /// Request ID
     pub id: u64,
 
@@ -289,20 +317,20 @@ pub struct BrokerResponseV0 {
     pub result: u16,
 
     /// Response content
-    pub content: Option<BrokerResponseContentV0>,
+    pub content: Option<BrokerOverlayResponseContentV0>,
 }
 
-/// Response to an BrokerRequest
+/// Response to a `BrokerOverlayRequest`
 #[derive(Clone, Debug, Serialize, Deserialize)]
-pub enum BrokerResponse {
-    V0(BrokerResponseV0),
+pub enum BrokerOverlayResponse {
+    V0(BrokerOverlayResponseV0),
 }
 
-/// Content of BrokerOverlayMessageV0
+/// Content of `BrokerOverlayMessageV0`
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub enum BrokerOverlayMessageContentV0 {
-    BrokerRequest(BrokerRequest),
-    BrokerResponse(BrokerResponse),
+    BrokerOverlayRequest(BrokerOverlayRequest),
+    BrokerOverlayResponse(BrokerOverlayResponse),
     Event(Event),
 }
 /// Broker message for an overlay
@@ -321,12 +349,8 @@ pub enum BrokerOverlayMessage {
 /// Content of BrokerMessageV0
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub enum BrokerMessageContentV0 {
-    ServerHello(ServerHello),
-    ClientAuth(ClientAuth),
-    AddUser(AddUser),
-    DelUser(DelUser),
-    AddClient(AddClient),
-    DelClient(DelClient),
+    BrokerRequest(BrokerRequest),
+    BrokerResponse(BrokerResponse),
     BrokerOverlayMessage(BrokerOverlayMessage),
 }
 
