@@ -648,7 +648,12 @@ pub enum DelClient {
 
 /// Content of `BrokerRequestV0`
 #[derive(Clone, Debug, Serialize, Deserialize)]
-pub enum BrokerRequestContentV0 {}
+pub enum BrokerRequestContentV0 {
+    AddUser(AddUser),
+    DelUser(DelUser),
+    AddClient(AddClient),
+    DelClient(DelClient),
+}
 /// Broker request
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct BrokerRequestV0 {
