@@ -509,9 +509,9 @@ pub enum OverlayMessageContentV0 {
     UnsubReq(UnsubReq),
     UnsubAck(UnsubAck),
     Event(Event),
-    ObjectSearchTopic(BlockSearchTopic),
-    ObjectSearchRandom(BlockSearchRandom),
-    ObjectResult(BlockResult),
+    BlockSearchTopic(BlockSearchTopic),
+    BlockSearchRandom(BlockSearchRandom),
+    BlockResult(BlockResult),
     OverlayRequest(OverlayRequest),
     OverlayResponse(OverlayResponse),
 }
