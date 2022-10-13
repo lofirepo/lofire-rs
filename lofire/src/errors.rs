@@ -1,3 +1,5 @@
+//! Errors
+
 pub enum LofireError {
     InvalidSignature,
     SerializationError,

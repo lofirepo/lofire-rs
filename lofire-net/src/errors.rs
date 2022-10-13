@@ -1,5 +1,4 @@
 use crate::types::BrokerMessage;
-use lofire::errors::*;
 use lofire::types::Block;
 use num_enum::IntoPrimitive;
 use num_enum::TryFromPrimitive;
@@ -21,11 +20,11 @@ pub enum ProtocolError {
     OverlayNotJoined,
 }
 
-impl From<LofireError> for ProtocolError {
-    fn from(e: LofireError) -> Self {
+impl From<lofire::errors::LofireError> for ProtocolError {
+    fn from(e: lofire::errors::LofireError) -> Self {
         match e {
-            LofireError::InvalidSignature => ProtocolError::InvalidSignature,
-            LofireError::SerializationError => ProtocolError::SerializationError,
+            lofire::errors::LofireError::InvalidSignature => ProtocolError::InvalidSignature,
+            lofire::errors::LofireError::SerializationError => ProtocolError::SerializationError,
         }
     }
 }
