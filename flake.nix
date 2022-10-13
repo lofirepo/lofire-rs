@@ -28,12 +28,16 @@
         })
         .buildRustPackage;
       myNativeBuildInputs = with pkgs; [
-      ];
-      myBuildInputs = with pkgs; [
-        darwin.apple_sdk.frameworks.Security
         pkgconfig
-        openssl
       ];
+      myBuildInputs = with pkgs;
+        [
+          openssl
+        ]
+        ++ lib.optionals stdenv.isDarwin
+        (with darwin.apple_sdk.frameworks; [
+          Security
+        ]);
       myBuildRustPackage = attrs:
         buildRustPackage ({
             version = "0.1.0";
@@ -42,14 +46,12 @@
               lockFile = ./Cargo.lock;
               outputHashes = {
                 "lmdb-crypto-rs-0.14.0" = "sha256-Js5pmytq4N52yClhzeps5qHnTTrRGRUMX16ss8FWgwo=";
-                #pkgs.lib.fakeSha256;
                 "rkv-0.18.0" = "sha256-TnU+I6DINegLlzKPZ1Pet8Kr5x/WqEo2kwxQU3q7G34=";
               };
             };
             nativeBuildInputs = myNativeBuildInputs;
             buildInputs = myBuildInputs;
-            #RUST_BACKTRACE=1;
-            #RUST_LOG="trace";
+            RUST_BACKTRACE = 1;
           }
           // attrs);
     in rec {
@@ -76,18 +78,17 @@
         };
         default = lofire-node;
       };
-      defaultPackage = packages.default; # compat
 
       apps = rec {
-          lofire-node = utils.lib.mkApp {
-            drv = packages.lofire-node;
-            exePath = "/bin/lofire-node";
-          };
-          lofire-demo = utils.lib.mkApp  {
-            drv = packages.lofire-demo;
-            exePath = "/bin/lofire-demo";
-          };
-          default = lofire-node;
+        lofire-node = utils.lib.mkApp {
+          drv = packages.lofire-node;
+          exePath = "/bin/lofire-node";
+        };
+        lofire-demo = utils.lib.mkApp {
+          drv = packages.lofire-demo;
+          exePath = "/bin/lofire-demo";
+        };
+        default = lofire-node;
       };
     });
 }
