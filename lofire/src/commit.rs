@@ -120,7 +120,7 @@ impl Commit {
     /// Load commit from store
     pub fn load(commit_ref: ObjectRef, store: &Store) -> Result<Commit, CommitLoadError> {
         let (id, key) = (commit_ref.id, commit_ref.key);
-        match Object::load(id, Some(key), store) {
+        match Object::from_store(id, Some(key), store) {
             Ok(obj) => {
                 let content = obj
                     .content()
@@ -141,7 +141,7 @@ impl Commit {
     pub fn load_body(&self, store: &Store) -> Result<CommitBody, CommitLoadError> {
         let content = self.content();
         let (id, key) = (content.body.id, content.body.key);
-        let obj = Object::load(id.clone(), Some(key.clone()), store)
+        let obj = Object::from_store(id.clone(), Some(key.clone()), store)
             .map_err(|missing| CommitLoadError::MissingBlocks(missing))?;
         let content = obj
             .content()

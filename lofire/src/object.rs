@@ -1,5 +1,7 @@
 //! Merkle hash tree of Objects
 
+use std::collections::HashMap;
+
 use debug_print::*;
 
 use chacha20::cipher::{KeyIvInit, StreamCipher};
@@ -245,19 +247,24 @@ impl Object {
         }
     }
 
-    /// Load an Object from store
+    /// Load an Object
     ///
     /// Returns Ok(Object) or an Err(Vec<ObjectId>) of missing BlockIds
-    pub fn load(id: ObjectId, key: Option<SymKey>, store: &Store) -> Result<Object, Vec<BlockId>> {
-        fn load_tree(
+    fn load<F>(id: ObjectId, key: Option<SymKey>, get_block: F) -> Result<Object, Vec<BlockId>>
+    where
+        F: Fn(&BlockId) -> Result<Block, ()>,
+    {
+        fn load_tree<F>(
             parents: Vec<BlockId>,
-            store: &Store,
+            get_block: F,
             blocks: &mut Vec<Block>,
             missing: &mut Vec<BlockId>,
-        ) {
+        ) where
+            F: Fn(&BlockId) -> Result<Block, ()>,
+        {
             let mut children: Vec<BlockId> = vec![];
             for id in parents {
-                match store.get(&id) {
+                match get_block(&id) {
                     Ok(obj) => {
                         blocks.insert(0, obj.clone());
                         match obj {
@@ -270,20 +277,45 @@ impl Object {
                 }
             }
             if !children.is_empty() {
-                load_tree(children, store, blocks, missing);
+                load_tree(children, get_block, blocks, missing);
             }
         }
 
         let mut blocks: Vec<Block> = vec![];
         let mut missing: Vec<BlockId> = vec![];
 
-        load_tree(vec![id], store, &mut blocks, &mut missing);
+        load_tree(vec![id], get_block, &mut blocks, &mut missing);
 
         if missing.is_empty() {
             Ok(Object { id, key, blocks })
         } else {
             Err(missing)
         }
+    }
+
+    /// Load an Object from HashMap
+    ///
+    /// Returns Ok(Object) or an Err(Vec<ObjectId>) of missing BlockIds
+    pub fn from_hashmap(
+        id: ObjectId,
+        key: Option<SymKey>,
+        blocks: &HashMap<BlockId, Block>,
+    ) -> Result<Object, Vec<BlockId>> {
+        Self::load(id, key, |id: &BlockId| match blocks.get(id) {
+            Some(block) => Ok(block.clone()),
+            None => Err(()),
+        })
+    }
+
+    /// Load an Object from Store
+    ///
+    /// Returns Ok(Object) or an Err(Vec<ObjectId>) of missing BlockIds
+    pub fn from_store(
+        id: ObjectId,
+        key: Option<SymKey>,
+        store: &Store,
+    ) -> Result<Object, Vec<BlockId>> {
+        Self::load(id, key, |id: &BlockId| store.get(id).or(Err(())))
     }
 
     /// Save blocks of the object in the store
@@ -321,6 +353,14 @@ impl Object {
 
     pub fn blocks(&self) -> &Vec<Block> {
         &self.blocks
+    }
+
+    pub fn to_hashmap(&self) -> HashMap<BlockId, Block> {
+        let mut map: HashMap<BlockId, Block> = HashMap::new();
+        for block in &self.blocks {
+            map.insert(block.id(), block.clone());
+        }
+        map
     }
 
     /// Parse the Object and return the decrypted content assembled from Blocks
@@ -508,7 +548,7 @@ mod test {
 
         object.save(&store);
 
-        let object2 = Object::load(object.id(), object.key(), &store).unwrap();
+        let object2 = Object::from_store(object.id(), object.key(), &store).unwrap();
 
         println!("nodes2.len: {:?}", object2.blocks().len());
         //println!("nodes2: {:?}", tree2.nodes());
@@ -523,6 +563,15 @@ mod test {
                 assert_eq!(content, cnt);
             }
             Err(e) => panic!("Object2 parse error: {:?}", e),
+        }
+
+        let map = object.to_hashmap();
+        let object3 = Object::from_hashmap(object.id(), object.key(), &map).unwrap();
+        match object3.content() {
+            Ok(cnt) => {
+                assert_eq!(content, cnt);
+            }
+            Err(e) => panic!("Object3 parse error: {:?}", e),
         }
     }
 
