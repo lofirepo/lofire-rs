@@ -185,7 +185,7 @@ impl Object {
         }
 
         // create blocks by chunking + encrypting content
-        let block_size = Store::get_valid_value_size(max_object_size);
+        let block_size = store_valid_value_size(max_object_size);
         let data_chunk_size = block_size - EMPTY_BLOCK_SIZE - DATA_VARINT_EXTRA;
 
         let mut blocks: Vec<(Block, SymKey)> = vec![];
@@ -313,16 +313,17 @@ impl Object {
     pub fn from_store(
         id: ObjectId,
         key: Option<SymKey>,
-        store: &Store,
+        store: &impl Store,
     ) -> Result<Object, Vec<BlockId>> {
         Self::load(id, key, |id: &BlockId| store.get(id).or(Err(())))
     }
 
     /// Save blocks of the object in the store
-    pub fn save(&self, store: &Store) {
+    pub fn save(&self, store: &mut impl Store) -> Result<(), StorePutError> {
         for block in &self.blocks {
-            store.put(block);
+            store.put(block.clone())?;
         }
+        Ok(())
     }
 
     /// Get the ID of the Object
@@ -536,17 +537,9 @@ mod test {
             }
             Err(e) => panic!("Object parse error: {:?}", e),
         }
+        let mut store = HashMapStore::new();
 
-        let root = tempfile::Builder::new()
-            .prefix("test-tree")
-            .tempdir()
-            .unwrap();
-        let key: [u8; 32] = [0; 32];
-        std::fs::create_dir_all(root.path()).unwrap();
-        println!("{}", root.path().to_str().unwrap());
-        let store = Store::open(root.path(), key);
-
-        object.save(&store);
+        object.save(&mut store).expect("Object save error");
 
         let object2 = Object::from_store(object.id(), object.key(), &store).unwrap();
 
@@ -588,7 +581,7 @@ mod test {
         let empty_file_ser = serde_bare::to_vec(&empty_file).unwrap();
         println!("empty file size: {}", empty_file_ser.len());
 
-        let size = Store::get_max_value_size()
+        let size = store_max_value_size()
             - EMPTY_BLOCK_SIZE
             - DATA_VARINT_EXTRA
             - BLOCK_ID_SIZE * deps.len()
@@ -605,7 +598,7 @@ mod test {
         println!("content len: {}", content_ser.len());
 
         let expiry = Some(2u32.pow(31));
-        let max_object_size = Store::get_max_value_size();
+        let max_object_size = store_max_value_size();
 
         let repo_secret = SymKey::ChaCha20Key([0; 32]);
         let repo_pubkey = PubKey::Ed25519PubKey([1; 32]);
@@ -629,7 +622,7 @@ mod test {
 
     #[test]
     pub fn test_block_size() {
-        let max_block_size = Store::get_max_value_size();
+        let max_block_size = store_max_value_size();
         println!("max_object_size: {}", max_block_size);
 
         let id = Digest::Blake3Digest32([0u8; 32]);
@@ -717,8 +710,8 @@ mod test {
 
         println!(
             "range of valid value sizes {} {}",
-            Store::get_valid_value_size(0),
-            Store::get_max_value_size()
+            store_valid_value_size(0),
+            store_max_value_size()
         );
 
         println!(

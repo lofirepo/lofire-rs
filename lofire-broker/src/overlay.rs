@@ -42,12 +42,12 @@ pub enum Overlay {
 pub enum OverlayLoadError {
     NotFound,
     StoreError,
-    DeserializeError,
+    ValueError,
 }
 
 pub enum OverlaySaveError {
     StoreError,
-    SerializeError,
+    ValueError,
 }
 
 impl OverlayV0 {
@@ -103,21 +103,20 @@ impl Overlay {
         }
     }
 
-    pub fn load(id: Digest, store: &Store) -> Result<Overlay, OverlayLoadError> {
+    pub fn load(id: Digest, store: &impl Store) -> Result<Overlay, OverlayLoadError> {
         let overlay_ser = store.get_overlay(&id).map_err(|e| match e {
             StoreGetError::NotFound => OverlayLoadError::NotFound,
-            StoreGetError::StoreError => OverlayLoadError::StoreError,
+            _ => OverlayLoadError::StoreError,
         })?;
         serde_bare::from_slice::<Overlay>(overlay_ser.as_slice()).map_err(|e| match e {
-            _ => OverlayLoadError::DeserializeError,
+            _ => OverlayLoadError::ValueError,
         })
     }
 
-    pub fn save(&self, store: &Store) -> Result<(), OverlaySaveError> {
-        let overlay_ser =
-            serde_bare::to_vec(&self).map_err(|_| OverlaySaveError::SerializeError)?;
+    pub fn save(&self, store: &mut impl Store) -> Result<(), OverlaySaveError> {
+        let overlay_ser = serde_bare::to_vec(&self).map_err(|_| OverlaySaveError::ValueError)?;
         store
-            .put_overlay(&self.id(), &overlay_ser)
+            .put_overlay(self.id(), overlay_ser)
             .map_err(|_| OverlaySaveError::StoreError)
     }
 }

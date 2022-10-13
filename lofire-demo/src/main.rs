@@ -3,7 +3,7 @@ use async_tungstenite::client_async;
 use async_tungstenite::tungstenite::{Error, Message};
 use debug_print::*;
 use futures::{future, pin_mut, stream, SinkExt, StreamExt};
-use lofire::store::Store;
+use lofire_store_lmdb::store::LmdbStore;
 use std::thread;
 
 use lofire::types::*;
@@ -21,7 +21,7 @@ async fn test_local_connection() {
     let key: [u8; 32] = [0; 32];
     std::fs::create_dir_all(root.path()).unwrap();
     println!("{}", root.path().to_str().unwrap());
-    let store = Store::open(root.path(), key);
+    let store = LmdbStore::open(root.path(), key);
 
     let mut server = BrokerServer::new();
 

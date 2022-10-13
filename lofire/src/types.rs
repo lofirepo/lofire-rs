@@ -43,7 +43,7 @@ pub type Ed25519PubKey = [u8; 32];
 pub type Ed25519PrivKey = [u8; 32];
 
 /// Public key
-#[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq, Eq, Hash)]
 pub enum PubKey {
     Ed25519PubKey(Ed25519PubKey),
 }

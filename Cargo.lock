@@ -815,11 +815,9 @@ dependencies = [
  "ed25519-dalek",
  "fastbloom-rs",
  "rand 0.7.3",
- "rkv",
  "serde",
  "serde_bare",
  "serde_bytes",
- "tempfile",
 ]
 
 [[package]]
@@ -855,6 +853,7 @@ dependencies = [
  "lofire",
  "lofire-broker",
  "lofire-net",
+ "lofire-store-lmdb",
  "tempfile",
  "xactor",
 ]
@@ -882,6 +881,7 @@ dependencies = [
  "lofire-broker",
  "lofire-net",
  "lofire-p2p",
+ "lofire-store-lmdb",
  "tempfile",
 ]
 
@@ -896,6 +896,18 @@ dependencies = [
  "serde",
  "serde_bare",
  "serde_bytes",
+]
+
+[[package]]
+name = "lofire-store-lmdb"
+version = "0.1.0"
+dependencies = [
+ "debug_print",
+ "lofire",
+ "rkv",
+ "serde",
+ "serde_bare",
+ "tempfile",
 ]
 
 [[package]]

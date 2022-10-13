@@ -68,6 +68,10 @@
           pname = "lofire-p2p";
           buildAndTestSubdir = "./lofire-p2p";
         };
+        lofire-store-lmdb = myBuildRustPackage rec {
+          pname = "lofire-store-lmdb";
+          buildAndTestSubdir = "./lofire-store-lmdb";
+        };
         lofire-node = myBuildRustPackage rec {
           pname = "lofire-node";
           buildAndTestSubdir = "./lofire-node";

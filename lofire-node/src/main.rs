@@ -4,8 +4,8 @@ use async_tungstenite::accept_async;
 use async_tungstenite::tungstenite::protocol::Message;
 use debug_print::*;
 use futures::{SinkExt, StreamExt};
-use lofire::store::Store;
 use lofire_broker::server::*;
+use lofire_store_lmdb::store::LmdbStore;
 use std::{fs, thread};
 use tempfile::Builder;
 
@@ -54,7 +54,7 @@ async fn main() -> std::io::Result<()> {
     let key: [u8; 32] = [0; 32];
     std::fs::create_dir_all(root.path()).unwrap();
     println!("{}", root.path().to_str().unwrap());
-    let store = Store::open(root.path(), key);
+    let store = LmdbStore::open(root.path(), key);
 
     static server: BrokerServer = BrokerServer::new();
 

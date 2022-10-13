@@ -1,7 +1,9 @@
 use crate::errors::*;
 use crate::types::*;
+
 use ed25519_dalek::*;
 use rand::rngs::OsRng;
+use std::time::{SystemTime, UNIX_EPOCH};
 
 pub fn sign(
     author_privkey: PrivKey,
@@ -50,4 +52,16 @@ pub fn generate_keypair() -> (PrivKey, PubKey) {
     let priv_key = PrivKey::Ed25519PrivKey(ed_priv_key);
     let pub_key = PubKey::Ed25519PubKey(ed_pub_key);
     (priv_key, pub_key)
+}
+
+/// returns the Lofire Timestamp of now.
+pub fn now_timestamp() -> Timestamp {
+    ((SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_secs()
+        - EPOCH_AS_UNIX_TIMESTAMP)
+        / 60)
+        .try_into()
+        .unwrap()
 }

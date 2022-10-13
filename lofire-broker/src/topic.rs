@@ -8,12 +8,12 @@ use serde::{Deserialize, Serialize};
 pub enum TopicLoadError {
     NotFound,
     StoreError,
-    DeserializeError,
+    ValueError,
 }
 
 pub enum TopicSaveError {
     StoreError,
-    SerializeError,
+    ValueError,
 }
 
 /// A topic this node subscribed to in an overlay
@@ -76,20 +76,20 @@ impl Topic {
         }
     }
 
-    pub fn load(id: PubKey, store: &Store) -> Result<Topic, TopicLoadError> {
+    pub fn load(id: PubKey, store: &impl Store) -> Result<Topic, TopicLoadError> {
         let topic_ser = store.get_account(&id).map_err(|e| match e {
             StoreGetError::NotFound => TopicLoadError::NotFound,
-            StoreGetError::StoreError => TopicLoadError::StoreError,
+            _ => TopicLoadError::StoreError,
         })?;
         serde_bare::from_slice::<Topic>(topic_ser.as_slice()).map_err(|e| match e {
-            _ => TopicLoadError::DeserializeError,
+            _ => TopicLoadError::ValueError,
         })
     }
 
-    pub fn save(&self, store: &Store) -> Result<(), TopicSaveError> {
-        let topic_ser = serde_bare::to_vec(&self).map_err(|_| TopicSaveError::SerializeError)?;
+    pub fn save(&self, store: &mut impl Store) -> Result<(), TopicSaveError> {
+        let topic_ser = serde_bare::to_vec(&self).map_err(|_| TopicSaveError::ValueError)?;
         store
-            .put_account(&self.id(), &topic_ser)
+            .put_account(self.id(), topic_ser)
             .map_err(|_| TopicSaveError::StoreError)
     }
 }

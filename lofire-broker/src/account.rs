@@ -8,12 +8,12 @@ use serde::{Deserialize, Serialize};
 pub enum AccountLoadError {
     NotFound,
     StoreError,
-    DeserializeError,
+    ValueError,
 }
 
 pub enum AccountSaveError {
     StoreError,
-    SerializeError,
+    ValueError,
 }
 
 /// User account
@@ -78,21 +78,20 @@ impl Account {
         }
     }
 
-    pub fn load(id: PubKey, store: &Store) -> Result<Account, AccountLoadError> {
+    pub fn load(id: PubKey, store: &impl Store) -> Result<Account, AccountLoadError> {
         let account_ser = store.get_account(&id).map_err(|e| match e {
             StoreGetError::NotFound => AccountLoadError::NotFound,
-            StoreGetError::StoreError => AccountLoadError::StoreError,
+            _ => AccountLoadError::StoreError,
         })?;
         serde_bare::from_slice::<Account>(account_ser.as_slice()).map_err(|e| match e {
-            _ => AccountLoadError::DeserializeError,
+            _ => AccountLoadError::ValueError,
         })
     }
 
-    pub fn save(&self, store: &Store) -> Result<(), AccountSaveError> {
-        let account_ser =
-            serde_bare::to_vec(&self).map_err(|_| AccountSaveError::SerializeError)?;
+    pub fn save(&self, store: &mut impl Store) -> Result<(), AccountSaveError> {
+        let account_ser = serde_bare::to_vec(&self).map_err(|_| AccountSaveError::ValueError)?;
         store
-            .put_account(&self.id(), &account_ser)
+            .put_account(self.id(), account_ser)
             .map_err(|_| AccountSaveError::StoreError)
     }
 }

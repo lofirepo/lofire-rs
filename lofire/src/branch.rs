@@ -100,7 +100,7 @@ impl Branch {
         our_heads: &[ObjectRef],
         their_heads: &[ObjectId],
         their_filter: BloomFilter,
-        store: &Store,
+        store: &impl Store,
     ) -> Result<Vec<ObjectId>, CommitLoadError> {
         debug_println!(">> branch_sync");
         debug_println!("   our_heads: {:?}", our_heads);
@@ -110,7 +110,7 @@ impl Branch {
         /// and collect `ObjectId`s starting from `our_heads` towards `their_heads`
         fn load_branch(
             commit: &Commit,
-            store: &Store,
+            store: &impl Store,
             their_heads: &[ObjectId],
             their_heads_refs: &mut HashSet<ObjectRef>,
             visited: &mut HashSet<ObjectId>,
@@ -234,7 +234,6 @@ mod test {
     use ed25519_dalek::*;
     use fastbloom_rs::{BloomFilter as Filter, FilterBuilder, Membership};
     use rand::rngs::OsRng;
-    use rkv::EncodableKey;
 
     use crate::branch::*;
     use crate::commit::*;
@@ -250,7 +249,7 @@ mod test {
             expiry: Option<Timestamp>,
             repo_pubkey: PubKey,
             repo_secret: SymKey,
-            store: &Store,
+            store: &mut impl Store,
         ) -> ObjectRef {
             let max_object_size = 4000;
             let tree = Object::new(
@@ -276,7 +275,7 @@ mod test {
             body_ref: ObjectRef,
             repo_pubkey: PubKey,
             repo_secret: SymKey,
-            store: &Store,
+            store: &mut impl Store,
         ) -> ObjectRef {
             let obj_deps = deps.iter().map(|r| r.id).collect();
 
@@ -317,7 +316,7 @@ mod test {
             repo_pubkey: PubKey,
             repo_secret: SymKey,
             rng: &mut OsRng,
-            store: &Store,
+            store: &mut impl Store,
         ) -> ObjectRef {
             let deps = vec![];
             let expiry = None;
@@ -337,7 +336,7 @@ mod test {
             deps: Vec<ObjectId>,
             repo_pubkey: PubKey,
             repo_secret: SymKey,
-            store: &Store,
+            store: &mut impl Store,
         ) -> ObjectRef {
             let expiry = None;
             let content = [7u8; 777].to_vec();
@@ -357,7 +356,7 @@ mod test {
             deps: Vec<ObjectId>,
             repo_pubkey: PubKey,
             repo_secret: SymKey,
-            store: &Store,
+            store: &mut impl Store,
         ) -> ObjectRef {
             let expiry = None;
             let body = CommitBody::Ack(Ack::V0());
@@ -372,15 +371,7 @@ mod test {
             )
         }
 
-        let root = tempfile::Builder::new()
-            .prefix("test-tree")
-            .tempdir()
-            .unwrap();
-        let key: [u8; 32] = [0; 32];
-        std::fs::create_dir_all(root.path()).unwrap();
-        println!("{}", root.path().to_str().unwrap());
-        let store = Store::open(root.path(), key);
-
+        let mut store = HashMapStore::new();
         let mut rng = OsRng {};
 
         // repo
@@ -396,7 +387,7 @@ mod test {
             repo_keypair.public.as_bytes().len(),
             repo_keypair.public.as_bytes()
         );
-        let repo_privkey = PrivKey::Ed25519PrivKey(repo_keypair.secret.to_bytes());
+        let _repo_privkey = PrivKey::Ed25519PrivKey(repo_keypair.secret.to_bytes());
         let repo_pubkey = PubKey::Ed25519PubKey(repo_keypair.public.to_bytes());
         let repo_secret = SymKey::ChaCha20Key([9; 32]);
 
@@ -440,10 +431,10 @@ mod test {
             repo_pubkey.clone(),
             repo_secret.clone(),
             &mut rng,
-            &store,
+            &mut store,
         );
-        let ack_body = add_body_ack(vec![], repo_pubkey, repo_secret, &store);
-        let trans_body = add_body_trans(vec![], repo_pubkey, repo_secret, &store);
+        let ack_body = add_body_ack(vec![], repo_pubkey, repo_secret, &mut store);
+        let trans_body = add_body_trans(vec![], repo_pubkey, repo_secret, &mut store);
 
         // create & add commits to store
         // deps/acks:
@@ -467,7 +458,7 @@ mod test {
             branch_body,
             repo_pubkey,
             repo_secret,
-            &store,
+            &mut store,
         );
 
         println!(">> t1");
@@ -481,7 +472,7 @@ mod test {
             trans_body,
             repo_pubkey,
             repo_secret,
-            &store,
+            &mut store,
         );
 
         println!(">> t2");
@@ -495,7 +486,7 @@ mod test {
             trans_body,
             repo_pubkey,
             repo_secret,
-            &store,
+            &mut store,
         );
 
         println!(">> a3");
@@ -509,7 +500,7 @@ mod test {
             ack_body,
             repo_pubkey,
             repo_secret,
-            &store,
+            &mut store,
         );
 
         println!(">> t4");
@@ -523,7 +514,7 @@ mod test {
             trans_body,
             repo_pubkey,
             repo_secret,
-            &store,
+            &mut store,
         );
 
         println!(">> t5");
@@ -537,7 +528,7 @@ mod test {
             trans_body,
             repo_pubkey,
             repo_secret,
-            &store,
+            &mut store,
         );
 
         println!(">> a6");
@@ -551,7 +542,7 @@ mod test {
             ack_body,
             repo_pubkey,
             repo_secret,
-            &store,
+            &mut store,
         );
 
         println!(">> a7");
@@ -565,7 +556,7 @@ mod test {
             ack_body,
             repo_pubkey,
             repo_secret,
-            &store,
+            &mut store,
         );
 
         let c7 = Commit::load(a7, &store).unwrap();
