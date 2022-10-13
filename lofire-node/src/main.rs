@@ -18,7 +18,7 @@ async fn connection_loop(tcp: TcpStream, mut handler: ProtocolHandler<'_>) -> st
                 debug_println!("Error on server stream: {:?}", e);
                 // Errors returned directly through the AsyncRead/Write API are fatal, generally an error on the underlying
                 // transport.
-                //
+                // TODO close connection
                 continue;
             }
             Ok(m) => m,
@@ -34,7 +34,7 @@ async fn connection_loop(tcp: TcpStream, mut handler: ProtocolHandler<'_>) -> st
                         break;
                     }
                     Ok(r) => {
-                        ws.send(Message::binary(r)).await.unwrap() //FIXME deal with sending errors (close the connection?)
+                        ws.send(Message::binary(r)).await.unwrap() // FIXME deal with sending errors (close the connection?)
                     }
                 }
             }

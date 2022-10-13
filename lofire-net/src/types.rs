@@ -1194,7 +1194,7 @@ pub enum BrokerMessage {
 
 impl BrokerMessage {
     /// Get the content
-    pub fn content_v0(&self) -> BrokerMessageContentV0 {
+    pub fn content(&self) -> BrokerMessageContentV0 {
         match self {
             BrokerMessage::V0(o) => o.content.clone(),
         }

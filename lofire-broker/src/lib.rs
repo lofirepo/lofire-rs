@@ -22,7 +22,7 @@ macro_rules! after {
     ( $self:expr, $request_id:ident, $addr:ident, $receiver:ident, $reply:ident ) => {
         debug_println!("waiting for reply");
 
-        $addr.wait_for_stop().await; // TODO add timeout
+        $addr.wait_for_stop().await; // TODO add timeout and close connection if there's no reply
         let $reply = $receiver.await.unwrap();
 
         debug_println!("reply arrived {:?}", $reply);

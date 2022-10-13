@@ -11,11 +11,11 @@ use lofire_net::types::*;
 
 #[derive(Debug)]
 enum ProtocolType {
-    Init,
-    AuthProtocol,
-    BrokerProtocol,
-    ExtProtocol,
-    PeerProtocol,
+    Start,
+    Auth,
+    Broker,
+    Ext,
+    P2P,
 }
 
 pub struct ProtocolHandler<'a> {
@@ -27,30 +27,32 @@ pub struct ProtocolHandler<'a> {
 }
 
 impl<'a> ProtocolHandler<'a> {
+    /// Handle incoming message
+    // FIXME return ProtocolError instead of panic via unwrap()
     pub fn handle_incoming(&mut self, frame: Vec<u8>) -> Vec<Result<Vec<u8>, ProtocolError>> {
         debug_println!("SERVER PROTOCOL {:?}", &self.protocol);
         match &self.protocol {
-            ProtocolType::Init => {
+            ProtocolType::Start => {
                 let message = serde_bare::from_slice::<StartProtocol>(&frame).unwrap();
                 match message {
                     StartProtocol::Auth(b) => {
-                        self.protocol = ProtocolType::AuthProtocol;
+                        self.protocol = ProtocolType::Auth;
                         self.auth_protocol = Some(AuthProtocolHandler::new());
                         vec![self.auth_protocol.as_mut().unwrap().handle_init(b)]
                     }
                     StartProtocol::Ext(ext) => {
-                        self.protocol = ProtocolType::ExtProtocol;
+                        self.protocol = ProtocolType::Ext;
                         self.ext_protocol = Some(ExtProtocolHandler {});
                         let reply = self.ext_protocol.as_ref().unwrap().handle_incoming(ext);
                         vec![Ok(serde_bare::to_vec(&reply).unwrap())]
                     }
                 }
             }
-            ProtocolType::AuthProtocol => {
+            ProtocolType::Auth => {
                 let res = self.auth_protocol.as_mut().unwrap().handle_incoming(frame);
                 if res.last().unwrap().is_ok() {
                     // we switch to Broker protocol
-                    self.protocol = ProtocolType::BrokerProtocol;
+                    self.protocol = ProtocolType::Broker;
                     self.broker_protocol = Some(BrokerProtocolHandler {
                         user: self.auth_protocol.as_ref().unwrap().get_user().unwrap(),
                         broker: self.broker,
@@ -59,7 +61,7 @@ impl<'a> ProtocolHandler<'a> {
                 }
                 res
             }
-            ProtocolType::BrokerProtocol => {
+            ProtocolType::Broker => {
                 let message = serde_bare::from_slice::<BrokerMessage>(&frame).unwrap();
                 let reply = self
                     .broker_protocol
@@ -68,12 +70,12 @@ impl<'a> ProtocolHandler<'a> {
                     .handle_incoming(message);
                 vec![Ok(serde_bare::to_vec(&reply).unwrap())]
             }
-            ProtocolType::ExtProtocol => {
+            ProtocolType::Ext => {
                 // Ext protocol is not accepting 2 extrequest in the same connection.
                 // TODO, close the connection
                 vec![Err(ProtocolError::InvalidState)]
             }
-            ProtocolType::PeerProtocol => {
+            ProtocolType::P2P => {
                 unimplemented!()
             }
         }
@@ -149,10 +151,10 @@ impl<'a> BrokerProtocolHandler<'a> {
     pub fn handle_incoming(&self, msg: BrokerMessage) -> BrokerMessage {
         // TODO check FSM
 
-        let padding_size = 20; //TODO randomize, if config of server contains padding_max
+        let padding_size = 20; // TODO randomize, if config of server contains padding_max
 
         let id = msg.id();
-        let content = msg.content_v0();
+        let content = msg.content();
         match content {
             BrokerMessageContentV0::BrokerRequest(req) => Self::prepare_reply_broker_message(
                 match req.content_v0() {
@@ -193,6 +195,8 @@ impl<'a> BrokerProtocolHandler<'a> {
                         BrokerOverlayRequestContentV0::BlockPut(b) => {
                             res = self.broker.block_put(overlay, b.block())
                         }
+                        // TODO BlockGet
+                        // TODO BranchSyncReq
                         _ => {}
                     }
                 }
@@ -219,7 +223,7 @@ impl BrokerServer {
     pub fn protocol_handler(&self) -> ProtocolHandler {
         return ProtocolHandler {
             broker: &self,
-            protocol: ProtocolType::Init,
+            protocol: ProtocolType::Start,
             auth_protocol: None,
             broker_protocol: None,
             ext_protocol: None,

@@ -103,7 +103,7 @@ where
                 BrokerOverlayRequestContentV0::BlockPut(BlockPut::V0(block.clone())),
             )
             .await?;
-        //TODO compute the ObjectId here or receive it from broker
+        // TODO compute the ObjectId here or receive it from broker
         Ok(Digest::Blake3Digest32([9; 32]))
     }
 
@@ -124,7 +124,7 @@ where
             repo_pubkey,
             repo_secret,
         );
-        for block in obj.nodes() {
+        for block in obj.blocks() {
             let _ = self.put_block(block).await?;
         }
         Ok(obj.id())
@@ -239,8 +239,8 @@ where
     A: Sink<Vec<u8>, Error = ProtocolError> + Send,
     B: Stream<Item = Vec<u8>> + StreamExt + Send,
 {
-    writer: Option<A>, //TODO: remove. not used
-    reader: Option<B>, //TODO: remove. not used
+    writer: Option<A>, // TODO: remove. not used
+    reader: Option<B>, // TODO: remove. not used
 }
 
 impl<A, B> ConnectionRemote<A, B>
@@ -256,6 +256,7 @@ where
         unimplemented!();
     }
 
+    // FIXME return ProtocolError instead of panic via unwrap()
     pub async fn open_broker_connection(
         w: A,
         r: B,
@@ -329,7 +330,7 @@ where
     <U as Stream>::Item: 'static + Debug + Send,
 {
     writer: Pin<Box<T>>,
-    reader: Option<U>, //TODO: remove. not used
+    reader: Option<U>, // TODO: remove. not used
     user: PubKey,
     actors: Arc<RwLock<HashMap<u64, WeakAddr<BrokerMessageActor>>>>,
 }
@@ -352,7 +353,7 @@ where
 
         self.writer
             .send(BrokerMessage::V0(BrokerMessageV0 {
-                padding: vec![], //FIXME implement padding
+                padding: vec![], // FIXME implement padding
                 content: BrokerMessageContentV0::BrokerOverlayMessage(BrokerOverlayMessage::V0(
                     BrokerOverlayMessageV0 {
                         overlay,
@@ -372,6 +373,7 @@ where
         reply.into()
     }
 
+    // FIXME return ProtocolError instead of panic via unwrap()
     async fn add_user(
         &mut self,
         user_id: PubKey,
@@ -389,7 +391,7 @@ where
 
         self.writer
             .send(BrokerMessage::V0(BrokerMessageV0 {
-                padding: vec![], //FIXME implement padding
+                padding: vec![], // FIXME implement padding
                 content: BrokerMessageContentV0::BrokerRequest(BrokerRequest::V0(
                     BrokerRequestV0 {
                         id: request_id,

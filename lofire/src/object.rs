@@ -245,17 +245,17 @@ impl Object {
         }
     }
 
-    /// Load Object from store
+    /// Load an Object from store
     ///
-    /// Returns Ok(Object) or an Err(Vec<ObjectId>) of missing Object IDs
-    pub fn load(id: ObjectId, key: Option<SymKey>, store: &Store) -> Result<Object, Vec<ObjectId>> {
+    /// Returns Ok(Object) or an Err(Vec<ObjectId>) of missing BlockIds
+    pub fn load(id: ObjectId, key: Option<SymKey>, store: &Store) -> Result<Object, Vec<BlockId>> {
         fn load_tree(
-            parents: Vec<ObjectId>,
+            parents: Vec<BlockId>,
             store: &Store,
             blocks: &mut Vec<Block>,
-            missing: &mut Vec<ObjectId>,
+            missing: &mut Vec<BlockId>,
         ) {
-            let mut children: Vec<ObjectId> = vec![];
+            let mut children: Vec<BlockId> = vec![];
             for id in parents {
                 match store.get(&id) {
                     Ok(obj) => {
@@ -275,7 +275,7 @@ impl Object {
         }
 
         let mut blocks: Vec<Block> = vec![];
-        let mut missing: Vec<ObjectId> = vec![];
+        let mut missing: Vec<BlockId> = vec![];
 
         load_tree(vec![id], store, &mut blocks, &mut missing);
 
@@ -319,7 +319,7 @@ impl Object {
         self.blocks.last().unwrap()
     }
 
-    pub fn nodes(&self) -> &Vec<Block> {
+    pub fn blocks(&self) -> &Vec<Block> {
         &self.blocks
     }
 
@@ -482,10 +482,10 @@ mod test {
 
         println!("root_id: {:?}", object.id());
         println!("root_key: {:?}", object.key().unwrap());
-        println!("nodes.len: {:?}", object.nodes().len());
+        println!("nodes.len: {:?}", object.blocks().len());
         //println!("nodes: {:?}", tree.nodes());
         let mut i = 0;
-        for node in object.nodes() {
+        for node in object.blocks() {
             println!("#{}: {:?}", i, node.id());
             i += 1;
         }
@@ -510,10 +510,10 @@ mod test {
 
         let object2 = Object::load(object.id(), object.key(), &store).unwrap();
 
-        println!("nodes2.len: {:?}", object2.nodes().len());
+        println!("nodes2.len: {:?}", object2.blocks().len());
         //println!("nodes2: {:?}", tree2.nodes());
         let mut i = 0;
-        for node in object2.nodes() {
+        for node in object2.blocks() {
             println!("#{}: {:?}", i, node.id());
             i += 1;
         }
@@ -572,7 +572,7 @@ mod test {
 
         println!("root_id: {:?}", object.id());
         println!("root_key: {:?}", object.key().unwrap());
-        println!("nodes.len: {:?}", object.nodes().len());
+        println!("nodes.len: {:?}", object.blocks().len());
         //println!("root: {:?}", tree.root());
         //println!("nodes: {:?}", object.blocks);
         assert_eq!(object.blocks.len(), 1);
