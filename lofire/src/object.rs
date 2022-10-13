@@ -14,7 +14,7 @@ const EMPTY_BLOCK_SIZE: usize = 12;
 const BLOCK_ID_SIZE: usize = 33;
 /// Size of serialized SymKey
 const BLOCK_KEY_SIZE: usize = 33;
-/// Size of serialized Oject with deps reference.
+/// Size of serialized Object with deps reference.
 const EMPTY_ROOT_SIZE_DEPSREF: usize = 77;
 /// Extra size needed if depsRef used instead of deps list.
 const DEPSREF_OVERLOAD: usize = EMPTY_ROOT_SIZE_DEPSREF - EMPTY_BLOCK_SIZE;

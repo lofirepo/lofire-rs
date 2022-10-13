@@ -30,6 +30,9 @@
       myNativeBuildInputs = with pkgs; [
       ];
       myBuildInputs = with pkgs; [
+        darwin.apple_sdk.frameworks.Security
+        pkgconfig
+        openssl
       ];
       myBuildRustPackage = attrs:
         buildRustPackage ({

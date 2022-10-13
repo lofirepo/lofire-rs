@@ -6,7 +6,12 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
+debug_print = "1.0.0"
 lofire = { path = "../lofire" }
 lofire-net = { path = "../lofire-net" }
 lofire-broker = { path = "../lofire-broker" }
 async-std = {  version = "1.7.0", features = ["attributes"] }
+async-tungstenite = {  version = "0.17.2", features = ["async-std-runtime","async-native-tls"] }
+futures = "0.3.24"
+xactor = "0.7.11"
+tempfile = "3"

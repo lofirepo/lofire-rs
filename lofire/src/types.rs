@@ -28,6 +28,14 @@ pub enum SymKey {
     ChaCha20Key(ChaCha20Key),
 }
 
+impl SymKey {
+    pub fn slice(&self) -> &[u8; 32] {
+        match self {
+            SymKey::ChaCha20Key(o) => o,
+        }
+    }
+}
+
 /// Curve25519 public key
 pub type Ed25519PubKey = [u8; 32];
 
@@ -38,6 +46,14 @@ pub type Ed25519PrivKey = [u8; 32];
 #[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq, Eq)]
 pub enum PubKey {
     Ed25519PubKey(Ed25519PubKey),
+}
+
+impl PubKey {
+    pub fn slice(&self) -> &[u8; 32] {
+        match self {
+            PubKey::Ed25519PubKey(o) => o,
+        }
+    }
 }
 
 /// Private key
