@@ -207,6 +207,19 @@ where
             .await
     }
 
+    pub async fn get_object(
+        &mut self,
+        id: ObjectId,
+        topic: Option<PubKey>,
+    ) -> Result<Object, ProtocolError> {
+        let mut blockstream = self.get_block(id, true, topic).await?;
+        let mut map: HashMap<BlockId, Block> = HashMap::new();
+        while let Some(b) = blockstream.next().await {
+            map.insert(b.id(), b);
+        }
+        Object::from_hashmap(id, None, &map).map_err(|e| ProtocolError::MissingBlocks)
+    }
+
     pub async fn put_block(&mut self, block: &Block) -> Result<BlockId, ProtocolError> {
         let res = self
             .broker

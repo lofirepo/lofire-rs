@@ -23,6 +23,7 @@ pub enum ProtocolError {
     NotFound,
     EndOfStream,
     StoreError,
+    MissingBlocks,
 }
 
 impl ProtocolError {

@@ -93,6 +93,13 @@ async fn test_local_connection() {
     while let Some(b) = my_object_stream.next().await {
         debug_println!("GOT BLOCK {}", b.id());
     }
+
+    let object = public_overlay_cnx
+        .get_object(object_id, None)
+        .await
+        .expect("get_object failed");
+
+    debug_println!("GOT OBJECT with ID {}", object.id());
 }
 
 #[xactor::main]
@@ -196,6 +203,13 @@ async fn main() -> std::io::Result<()> {
             while let Some(b) = my_object_stream.next().await {
                 debug_println!("GOT BLOCK {}", b.id());
             }
+
+            let object = public_overlay_cnx
+                .get_object(object_id, None)
+                .await
+                .expect("get_object failed");
+
+            debug_println!("GOT OBJECT with ID {}", object.id());
         }
         Err(e) => {
             debug_println!("cannot connect {:?}", e);
