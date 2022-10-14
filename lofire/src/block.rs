@@ -4,7 +4,7 @@ use crate::types::*;
 
 impl BlockV0 {
     pub fn new(
-        children: Vec<ObjectId>,
+        children: Vec<BlockId>,
         deps: ObjectDeps,
         expiry: Option<Timestamp>,
         content: Vec<u8>,
@@ -20,7 +20,7 @@ impl BlockV0 {
 
 impl Block {
     pub fn new(
-        children: Vec<ObjectId>,
+        children: Vec<BlockId>,
         deps: ObjectDeps,
         expiry: Option<Timestamp>,
         content: Vec<u8>,
@@ -29,7 +29,7 @@ impl Block {
     }
 
     /// Get the ID
-    pub fn id(&self) -> ObjectId {
+    pub fn id(&self) -> BlockId {
         let ser = serde_bare::to_vec(self).unwrap();
         let hash = blake3::hash(ser.as_slice());
         Digest::Blake3Digest32(hash.as_bytes().clone())

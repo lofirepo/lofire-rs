@@ -825,6 +825,7 @@ name = "lofire-broker"
 version = "0.1.0"
 dependencies = [
  "async-broadcast",
+ "async-channel",
  "async-oneshot",
  "async-std",
  "async-trait",
@@ -835,6 +836,7 @@ dependencies = [
  "getrandom 0.2.7",
  "lofire",
  "lofire-net",
+ "lofire-store-lmdb",
  "rust-fsm",
  "serde",
  "serde_bare",

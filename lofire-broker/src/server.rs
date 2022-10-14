@@ -1,13 +1,17 @@
 //! A Broker server
 
+use std::sync::Arc;
+
 use crate::auth::*;
 use crate::connection::BrokerConnectionLocal;
 use debug_print::*;
+use futures::Stream;
 use lofire::store::Store;
 use lofire::types::*;
 use lofire::utils::*;
 use lofire_net::errors::*;
 use lofire_net::types::*;
+use lofire_store_lmdb::store::LmdbStore;
 
 #[derive(Debug)]
 enum ProtocolType {
@@ -18,15 +22,15 @@ enum ProtocolType {
     P2P,
 }
 
-pub struct ProtocolHandler<'a> {
-    broker: &'a BrokerServer,
+pub struct ProtocolHandler {
+    broker: Arc<BrokerServer>,
     protocol: ProtocolType,
     auth_protocol: Option<AuthProtocolHandler>,
-    broker_protocol: Option<BrokerProtocolHandler<'a>>,
+    broker_protocol: Option<BrokerProtocolHandler>,
     ext_protocol: Option<ExtProtocolHandler>,
 }
 
-impl<'a> ProtocolHandler<'a> {
+impl ProtocolHandler {
     /// Handle incoming message
     // FIXME return ProtocolError instead of panic via unwrap()
     pub fn handle_incoming(&mut self, frame: Vec<u8>) -> Vec<Result<Vec<u8>, ProtocolError>> {
@@ -55,7 +59,7 @@ impl<'a> ProtocolHandler<'a> {
                     self.protocol = ProtocolType::Broker;
                     self.broker_protocol = Some(BrokerProtocolHandler {
                         user: self.auth_protocol.as_ref().unwrap().get_user().unwrap(),
-                        broker: self.broker,
+                        broker: Arc::clone(&self.broker),
                     });
                     self.auth_protocol = None;
                 }
@@ -90,12 +94,12 @@ impl ExtProtocolHandler {
     }
 }
 
-pub struct BrokerProtocolHandler<'a> {
-    broker: &'a BrokerServer,
+pub struct BrokerProtocolHandler {
+    broker: Arc<BrokerServer>,
     user: PubKey,
 }
 
-impl<'a> BrokerProtocolHandler<'a> {
+impl BrokerProtocolHandler {
     fn prepare_reply_broker_message(
         res: Result<(), ProtocolError>,
         id: u64,
@@ -129,6 +133,38 @@ impl<'a> BrokerProtocolHandler<'a> {
         let content = match block {
             Some(b) => Some(BrokerOverlayResponseContentV0::Block(b)),
             None => None,
+        };
+        let msg = BrokerMessage::V0(BrokerMessageV0 {
+            padding: vec![0; padding_size],
+            content: BrokerMessageContentV0::BrokerOverlayMessage(BrokerOverlayMessage::V0(
+                BrokerOverlayMessageV0 {
+                    overlay,
+                    content: BrokerOverlayMessageContentV0::BrokerOverlayResponse(
+                        BrokerOverlayResponse::V0(BrokerOverlayResponseV0 {
+                            id,
+                            result,
+                            content,
+                        }),
+                    ),
+                },
+            )),
+        });
+        msg
+    }
+
+    fn prepare_reply_broker_overlay_message_stream(
+        res: Result<Block, ProtocolError>,
+        id: u64,
+        overlay: OverlayId,
+        padding_size: usize,
+    ) -> BrokerMessage {
+        let result: u16 = match &res {
+            Ok(r) => ProtocolError::PartialContent.into(),
+            Err(e) => (*e).clone().into(),
+        };
+        let content = match res {
+            Ok(r) => Some(BrokerOverlayResponseContentV0::Block(r)),
+            Err(_) => None,
         };
         let msg = BrokerMessage::V0(BrokerMessageV0 {
             padding: vec![0; padding_size],
@@ -195,8 +231,28 @@ impl<'a> BrokerProtocolHandler<'a> {
                         BrokerOverlayRequestContentV0::BlockPut(b) => {
                             res = self.broker.block_put(overlay, b.block())
                         }
-                        // TODO BlockGet
                         // TODO BranchSyncReq
+                        BrokerOverlayRequestContentV0::BlockGet(b) => {
+                            let res = self.broker.block_get(
+                                overlay,
+                                b.id(),
+                                b.include_children(),
+                                b.topic(),
+                            );
+                            // return an error or the first block, and setup a spawner for the remain blocks to be sent.
+                            let one_reply = match res {
+                                Err(e) => Err(e),
+                                Ok(stream) => stream
+                                    .recv_blocking()
+                                    .map_err(|e| ProtocolError::EndOfStream),
+                            };
+                            return Self::prepare_reply_broker_overlay_message_stream(
+                                one_reply,
+                                id,
+                                overlay,
+                                padding_size,
+                            );
+                        }
                         _ => {}
                     }
                 }
@@ -208,21 +264,21 @@ impl<'a> BrokerProtocolHandler<'a> {
 }
 
 pub struct BrokerServer {
-    //store: &'a Store,
+    store: LmdbStore,
 }
 
 impl BrokerServer {
-    pub const fn new() -> BrokerServer {
-        BrokerServer {}
+    pub const fn new(store: LmdbStore) -> BrokerServer {
+        BrokerServer { store }
     }
 
     pub fn local_connection(&mut self, user: PubKey) -> BrokerConnectionLocal {
         BrokerConnectionLocal::new(self, user)
     }
 
-    pub fn protocol_handler(&self) -> ProtocolHandler {
+    pub fn protocol_handler(self: Arc<Self>) -> ProtocolHandler {
         return ProtocolHandler {
-            broker: &self,
+            broker: Arc::clone(&self),
             protocol: ProtocolType::Start,
             auth_protocol: None,
             broker_protocol: None,
@@ -271,8 +327,24 @@ impl BrokerServer {
     }
 
     pub fn block_put(&self, overlay: Digest, block: &Block) -> Result<(), ProtocolError> {
-        //self.store.put(block);
+        self.store._put(block);
         Ok(())
+    }
+
+    pub fn block_get(
+        &self,
+        overlay: Digest,
+        id: BlockId,
+        include_children: bool,
+        topic: Option<PubKey>,
+    ) -> Result<async_channel::Receiver<Block>, ProtocolError> {
+        unimplemented!();
+
+        // if !include_children {
+        //     for id in ids {
+        //         self.store.get()
+        //     }
+        // }
     }
 
     pub fn overlay_join(

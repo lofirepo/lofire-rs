@@ -9,7 +9,7 @@ pub trait Store {
     fn get(&self, id: &BlockId) -> Result<Block, StoreGetError>;
 
     /// Save a block to the store.
-    fn put(&mut self, block: Block) -> Result<BlockId, StorePutError>;
+    fn put(&mut self, block: &Block) -> Result<BlockId, StorePutError>;
 
     /// Delete a block from the store.
     fn del(&mut self, id: &BlockId) -> Result<(Block, usize), StoreDelError>;
@@ -107,9 +107,9 @@ impl Store for HashMapStore {
         }
     }
 
-    fn put(&mut self, block: Block) -> Result<BlockId, StorePutError> {
+    fn put(&mut self, block: &Block) -> Result<BlockId, StorePutError> {
         let id = block.id();
-        self.blocks.insert(id, block);
+        self.blocks.insert(id, block.clone());
         Ok(id)
     }
 

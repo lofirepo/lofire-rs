@@ -23,7 +23,7 @@ async fn test_local_connection() {
     println!("{}", root.path().to_str().unwrap());
     let store = LmdbStore::open(root.path(), key);
 
-    let mut server = BrokerServer::new();
+    let mut server = BrokerServer::new(store);
 
     let (priv_key, pub_key) = generate_keypair();
 
@@ -78,11 +78,11 @@ async fn main() -> std::io::Result<()> {
         Ok(mut cnx) => {
             cnx.add_user(PubKey::Ed25519PubKey([1; 32]), priv_key)
                 .await
-                .expect("add_user failed");
+                .expect("add_user 1 failed");
 
             cnx.add_user(PubKey::Ed25519PubKey([2; 32]), priv_key)
                 .await
-                .expect("add_user failed");
+                .expect("add_user 2 failed");
 
             let repo = RepoLink::V0(RepoLinkV0 {
                 id: PubKey::Ed25519PubKey([20; 32]),
@@ -104,7 +104,7 @@ async fn main() -> std::io::Result<()> {
                 .await
                 .expect("put_block failed");
 
-            public_overlay_cnx
+            let object_id = public_overlay_cnx
                 .put_object(
                     ObjectContent::File(File::V0(FileV0 {
                         content_type: vec![],
@@ -119,6 +119,8 @@ async fn main() -> std::io::Result<()> {
                 )
                 .await
                 .expect("put_object failed");
+
+            debug_println!("added object_id to store {:?}", object_id);
         }
         Err(e) => {
             debug_println!("cannot connect {:?}", e);

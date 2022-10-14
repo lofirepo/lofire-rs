@@ -6,10 +6,11 @@ use debug_print::*;
 use futures::{SinkExt, StreamExt};
 use lofire_broker::server::*;
 use lofire_store_lmdb::store::LmdbStore;
+use std::sync::Arc;
 use std::{fs, thread};
 use tempfile::Builder;
 
-async fn connection_loop(tcp: TcpStream, mut handler: ProtocolHandler<'_>) -> std::io::Result<()> {
+async fn connection_loop(tcp: TcpStream, mut handler: ProtocolHandler) -> std::io::Result<()> {
     let mut ws = accept_async(tcp).await.unwrap();
 
     while let Some(msg) = ws.next().await {
@@ -56,12 +57,14 @@ async fn main() -> std::io::Result<()> {
     println!("{}", root.path().to_str().unwrap());
     let store = LmdbStore::open(root.path(), key);
 
-    static server: BrokerServer = BrokerServer::new();
+    let server: BrokerServer = BrokerServer::new(store);
 
     let socket = TcpListener::bind("127.0.0.1:3012").await?;
     let mut connections = socket.incoming();
+    let server_arc = Arc::new(server);
     while let Some(tcp) = connections.next().await {
-        let _handle = task::spawn(connection_loop(tcp.unwrap(), server.protocol_handler()));
+        let proto_handler = Arc::clone(&server_arc).protocol_handler();
+        let _handle = task::spawn(connection_loop(tcp.unwrap(), proto_handler));
     }
     Ok(())
 }

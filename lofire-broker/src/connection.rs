@@ -1,6 +1,12 @@
 //! Connection to a Broker, can be local or remote.
 //! If remote, it will use a Stream and Sink of framed messages
 use async_std::task;
+use futures::{
+    ready,
+    stream::Stream,
+    task::{Context, Poll},
+    Future,
+};
 use std::fmt::Debug;
 use std::pin::Pin;
 
@@ -8,7 +14,7 @@ use crate::server::BrokerServer;
 use async_broadcast::{broadcast, Receiver};
 use async_oneshot::oneshot;
 use debug_print::*;
-use futures::{stream, Sink, SinkExt, Stream, StreamExt};
+use futures::{pin_mut, stream, Sink, SinkExt, StreamExt};
 use lofire::object::*;
 use lofire::types::*;
 use lofire::utils::*;
@@ -16,7 +22,7 @@ use lofire_net::errors::*;
 use lofire_net::types::*;
 use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
-use xactor::{message, spawn, Actor, Addr, Context, Handler, WeakAddr};
+use xactor::{message, spawn, Actor, Addr, Handler, WeakAddr};
 
 #[message]
 struct BrokerMessageXActor(BrokerMessage);
@@ -42,12 +48,63 @@ impl BrokerMessageActor {
     }
 }
 
+struct BrokerMessageStreamActor {
+    r: Option<async_channel::Receiver<Block>>,
+    s: async_channel::Sender<Block>,
+}
+
+impl Actor for BrokerMessageStreamActor {}
+
+impl BrokerMessageStreamActor {
+    fn new() -> BrokerMessageStreamActor {
+        let (s, r) = async_channel::unbounded::<Block>();
+        BrokerMessageStreamActor { r: Some(r), s }
+    }
+    async fn partial(&mut self, block: Block) -> Result<(), ProtocolError> {
+        self.s
+            .send(block)
+            .await
+            .map_err(|e| ProtocolError::CannotSend)
+    }
+
+    fn receiver(&mut self) -> async_channel::Receiver<Block> {
+        self.r.take().unwrap()
+    }
+
+    fn close(&mut self) {
+        self.s.close();
+    }
+}
+
 #[async_trait::async_trait]
 impl Handler<BrokerMessageXActor> for BrokerMessageActor {
-    async fn handle(&mut self, ctx: &mut Context<Self>, msg: BrokerMessageXActor) {
+    async fn handle(&mut self, ctx: &mut xactor::Context<Self>, msg: BrokerMessageXActor) {
         println!("handling {:?}", msg.0);
         self.resolve(msg.0);
         ctx.stop(None);
+    }
+}
+
+#[async_trait::async_trait]
+impl Handler<BrokerMessageXActor> for BrokerMessageStreamActor {
+    async fn handle(&mut self, ctx: &mut xactor::Context<Self>, msg: BrokerMessageXActor) {
+        println!("handling {:?}", msg.0);
+        let res: Result<Option<Block>, ProtocolError> = msg.0.into();
+        match res {
+            Err(e) => {
+                // TODO pass the error code in a different way, as this cannot be retrieved
+                ctx.stop(Some(xactor::Error::new(e)));
+                self.close();
+            }
+            Ok(Some(b)) => {
+                // it must be a partial content
+                self.partial(b);
+            }
+            Ok(None) => {
+                ctx.stop(None);
+                self.close();
+            }
+        }
     }
 }
 
@@ -93,7 +150,23 @@ where
         }
     }
 
-    pub fn get_block(&self, id: BlockId) {}
+    pub async fn get_block(
+        &mut self,
+        id: BlockId,
+        include_children: bool,
+        topic: Option<PubKey>,
+    ) -> Result<T::BlockStream, ProtocolError> {
+        self.broker
+            .process_overlay_request_stream_response(
+                self.overlay,
+                BrokerOverlayRequestContentV0::BlockGet(BlockGet::V0(BlockGetV0 {
+                    id,
+                    include_children,
+                    topic,
+                })),
+            )
+            .await
+    }
 
     pub async fn put_block(&mut self, block: &Block) -> Result<BlockId, ProtocolError> {
         let res = self
@@ -103,8 +176,8 @@ where
                 BrokerOverlayRequestContentV0::BlockPut(BlockPut::V0(block.clone())),
             )
             .await?;
-        // TODO compute the ObjectId here or receive it from broker
-        Ok(Digest::Blake3Digest32([9; 32]))
+        //compute the ObjectId and return it
+        Ok(block.id())
     }
 
     pub async fn put_object(
@@ -158,6 +231,7 @@ where
 #[async_trait::async_trait]
 pub trait BrokerConnection {
     type OC: BrokerConnection;
+    type BlockStream: Stream<Item = Block>;
 
     async fn add_user(
         &mut self,
@@ -182,6 +256,12 @@ pub trait BrokerConnection {
         overlay: OverlayId,
         request: BrokerOverlayRequestContentV0,
     ) -> Result<(), ProtocolError>;
+
+    async fn process_overlay_request_stream_response(
+        &mut self,
+        overlay: OverlayId,
+        request: BrokerOverlayRequestContentV0,
+    ) -> Result<Self::BlockStream, ProtocolError>;
 }
 
 pub struct BrokerConnectionLocal<'a> {
@@ -192,6 +272,7 @@ pub struct BrokerConnectionLocal<'a> {
 #[async_trait::async_trait]
 impl<'a> BrokerConnection for BrokerConnectionLocal<'a> {
     type OC = BrokerConnectionLocal<'a>;
+    type BlockStream = async_channel::Receiver<Block>;
 
     async fn add_user(
         &mut self,
@@ -209,7 +290,15 @@ impl<'a> BrokerConnection for BrokerConnectionLocal<'a> {
         overlay: OverlayId,
         request: BrokerOverlayRequestContentV0,
     ) -> Result<(), ProtocolError> {
-        Ok(())
+        unimplemented!();
+    }
+
+    async fn process_overlay_request_stream_response(
+        &mut self,
+        overlay: OverlayId,
+        request: BrokerOverlayRequestContentV0,
+    ) -> Result<Self::BlockStream, ProtocolError> {
+        unimplemented!();
     }
 
     async fn del_user(&mut self) {}
@@ -234,21 +323,13 @@ impl<'a> BrokerConnectionLocal<'a> {
     }
 }
 
-pub struct ConnectionRemote<A, B>
-where
-    A: Sink<Vec<u8>, Error = ProtocolError> + Send,
-    B: Stream<Item = Vec<u8>> + StreamExt + Send,
-{
-    writer: Option<A>, // TODO: remove. not used
-    reader: Option<B>, // TODO: remove. not used
-}
+pub struct ConnectionRemote {}
 
-impl<A, B> ConnectionRemote<A, B>
-where
-    A: Sink<Vec<u8>, Error = ProtocolError> + Send,
-    B: Stream<Item = Vec<u8>> + StreamExt + Send + 'static,
-{
-    pub async fn ext_request(
+impl ConnectionRemote {
+    pub async fn ext_request<
+        B: Stream<Item = Vec<u8>> + StreamExt + Send + Sync,
+        A: Sink<Vec<u8>, Error = ProtocolError> + Send,
+    >(
         w: A,
         r: B,
         request: ExtRequest,
@@ -257,7 +338,10 @@ where
     }
 
     // FIXME return ProtocolError instead of panic via unwrap()
-    pub async fn open_broker_connection(
+    pub async fn open_broker_connection<
+        B: Stream<Item = Vec<u8>> + StreamExt + Send + Sync + 'static,
+        A: Sink<Vec<u8>, Error = ProtocolError> + Send,
+    >(
         w: A,
         r: B,
         user: PubKey,
@@ -310,7 +394,7 @@ where
                 }
                 let messages_stream_write = writer.with(|message| transform(message));
 
-                let messages_stream_read = reader
+                let mut messages_stream_read = reader
                     .map(|message| serde_bare::from_slice::<BrokerMessage>(&message).unwrap());
 
                 let cnx =
@@ -323,26 +407,75 @@ where
     }
 }
 
-pub struct BrokerConnectionRemote<T, U>
+pub struct BrokerConnectionRemote<T>
 where
     T: Sink<BrokerMessage> + Send,
-    U: Stream<Item = BrokerMessage> + StreamExt + Send + 'static,
-    <U as Stream>::Item: 'static + Debug + Send,
 {
     writer: Pin<Box<T>>,
-    reader: Option<U>, // TODO: remove. not used
     user: PubKey,
     actors: Arc<RwLock<HashMap<u64, WeakAddr<BrokerMessageActor>>>>,
+    stream_actors: Arc<RwLock<HashMap<u64, WeakAddr<BrokerMessageStreamActor>>>>,
 }
 
 #[async_trait::async_trait]
-impl<T, U> BrokerConnection for BrokerConnectionRemote<T, U>
+impl<T> BrokerConnection for BrokerConnectionRemote<T>
 where
     T: Sink<BrokerMessage> + Send,
-    U: Stream<Item = BrokerMessage> + StreamExt + Send + 'static,
-    <U as Stream>::Item: 'static + Debug + Send,
 {
-    type OC = BrokerConnectionRemote<T, U>;
+    type OC = BrokerConnectionRemote<T>;
+    type BlockStream = async_channel::Receiver<Block>;
+
+    async fn process_overlay_request_stream_response(
+        &mut self,
+        overlay: OverlayId,
+        request: BrokerOverlayRequestContentV0,
+    ) -> Result<Self::BlockStream, ProtocolError> {
+        let mut actor = BrokerMessageStreamActor::new();
+        let receiver = actor.receiver();
+        let mut addr = actor
+            .start()
+            .await
+            .map_err(|_e| ProtocolError::ActorError)?;
+
+        let request_id = addr.actor_id();
+        debug_println!("actor ID {}", request_id);
+
+        {
+            let mut map = self.stream_actors.write().expect("RwLock poisoned");
+            map.insert(request_id, addr.downgrade());
+        }
+
+        self.writer
+            .send(BrokerMessage::V0(BrokerMessageV0 {
+                padding: vec![], //FIXME implement padding
+                content: BrokerMessageContentV0::BrokerOverlayMessage(BrokerOverlayMessage::V0(
+                    BrokerOverlayMessageV0 {
+                        overlay,
+                        content: BrokerOverlayMessageContentV0::BrokerOverlayRequest(
+                            BrokerOverlayRequest::V0(BrokerOverlayRequestV0 {
+                                id: request_id,
+                                content: request,
+                            }),
+                        ),
+                    },
+                )),
+            }))
+            .await
+            .map_err(|_e| ProtocolError::CannotSend)?;
+
+        debug_println!("waiting for reply");
+
+        addr.wait_for_stop().await; // TODO add timeout
+                                    //let reply = receiver.await.unwrap();
+
+        //debug_println!("reply arrived {:?}", reply);
+        {
+            let mut map = self.stream_actors.write().expect("RwLock poisoned");
+            map.remove(&request_id);
+        }
+        //reply.into()
+        Err(ProtocolError::NotFound)
+    }
 
     async fn process_overlay_request(
         &mut self,
@@ -419,7 +552,7 @@ where
         &mut self,
         repo: &RepoLink,
         public: bool,
-    ) -> Result<OverlayConnectionClient<BrokerConnectionRemote<T, U>>, ProtocolError> {
+    ) -> Result<OverlayConnectionClient<BrokerConnectionRemote<T>>, ProtocolError> {
         let overlay: OverlayId = match public {
             true => Digest::Blake3Digest32(*blake3::hash(repo.id().slice()).as_bytes()),
             false => {
@@ -472,72 +605,95 @@ where
     }
 }
 
-impl<T, U> BrokerConnectionRemote<T, U>
+type OkResult<T> = std::result::Result<T, Box<dyn std::error::Error + Send + Sync>>;
+
+impl<T> BrokerConnectionRemote<T>
 where
     T: Sink<BrokerMessage> + Send,
-    U: Stream<Item = BrokerMessage> + StreamExt + Send + 'static,
-    // FIXME: the 2 static lifetimes here should be avoided. but how? try Arc<>
-    // or while let Some(message) = reader.next().await { ... }  instead of reader.for_each
-    <U as Stream>::Item: 'static + Debug + Send,
 {
-    pub fn open(writer: T, reader: U, user: PubKey) -> BrokerConnectionRemote<T, U> {
-        let actors: Arc<RwLock<HashMap<u64, WeakAddr<BrokerMessageActor>>>> =
-            Arc::new(RwLock::new(HashMap::new()));
+    async fn connection_reader_loop<
+        U: Stream<Item = BrokerMessage> + StreamExt + Send + Sync + Unpin + 'static,
+    >(
+        stream: U,
+        actors: Arc<RwLock<HashMap<u64, WeakAddr<BrokerMessageActor>>>>,
+        stream_actors: Arc<RwLock<HashMap<u64, WeakAddr<BrokerMessageStreamActor>>>>,
+    ) -> OkResult<()> {
+        let mut s = stream;
+        while let Some(message) = s.next().await {
+            debug_println!("GOT MESSAGE {:?}", message);
 
-        let actors_in_thread = Arc::clone(&actors);
-        task::spawn((move || {
-            //let actors_in_closure = Arc::clone(&actors_in_thread);
-            reader.for_each(move |message| {
-                let actors_in_future = Arc::clone(&actors_in_thread);
-                async move {
-                    debug_println!("GOT MESSAGE {:?}", message);
+            // TODO check FSM
 
-                    // TODO check FSM
-
-                    if message.is_request() {
-                        debug_println!("is request {}", message.id());
-                        // TODO close connection. a client is not supposed to receive requests.
-                    } else if message.is_response() {
-                        let id = message.id();
-                        debug_println!("is response {}", id);
-
-                        {
-                            let map = actors_in_future.read().expect("RwLock poisoned");
-                            match map.get(&id) {
+            if message.is_request() {
+                debug_println!("is request {}", message.id());
+                // TODO close connection. a client is not supposed to receive requests.
+            } else if message.is_response() {
+                let id = message.id();
+                debug_println!("is response {}", id);
+                {
+                    let map = actors.read().expect("RwLock poisoned");
+                    match map.get(&id) {
+                        Some(weak_addr) => match weak_addr.upgrade() {
+                            Some(addr) => {
+                                addr.send(BrokerMessageXActor(message))
+                                    .expect("sending message back to actor failed");
+                            }
+                            None => {
+                                debug_println!("ERROR. Addr is dead for ID {}", id);
+                            }
+                        },
+                        None => {
+                            debug_println!("Actor ID not found {}", id);
+                            let map2 = stream_actors.read().expect("RwLock poisoned");
+                            match map2.get(&id) {
                                 Some(weak_addr) => match weak_addr.upgrade() {
                                     Some(addr) => {
                                         addr.send(BrokerMessageXActor(message))
-                                            .expect("sending message back to actor failed");
+                                            .expect("sending message back to stream actor failed");
                                     }
                                     None => {
                                         debug_println!("ERROR. Addr is dead for ID {}", id);
                                     }
                                 },
                                 None => {
-                                    debug_println!("ERROR. invalid ID {}", id);
+                                    debug_println!("Stream Actor ID not found {}", id);
                                 }
                             }
                         }
                     }
                 }
-            })
-        })());
-
-        BrokerConnectionRemote::<T, U> {
-            writer: Box::pin(writer),
-            reader: None, //Some(reader),
-            user,
-            actors,
+            }
         }
+        Ok(())
     }
 
-    // pub async fn run(&mut self) {
-    //     self.reader
-    //         .take()
-    //         .unwrap()
-    //         .for_each(|message| async move {
-    //             debug_print!("GOT MESSAGE {:?}", message);
-    //         })
-    //         .await
-    // }
+    pub fn open<U: Stream<Item = BrokerMessage> + StreamExt + Send + Sync + Unpin + 'static>(
+        writer: T,
+        reader: U,
+        user: PubKey,
+    ) -> BrokerConnectionRemote<T> {
+        let actors: Arc<RwLock<HashMap<u64, WeakAddr<BrokerMessageActor>>>> =
+            Arc::new(RwLock::new(HashMap::new()));
+
+        let stream_actors: Arc<RwLock<HashMap<u64, WeakAddr<BrokerMessageStreamActor>>>> =
+            Arc::new(RwLock::new(HashMap::new()));
+
+        let actors_in_thread = Arc::clone(&actors);
+        let stream_actors_in_thread = Arc::clone(&stream_actors);
+        task::spawn(async move {
+            if let Err(e) =
+                Self::connection_reader_loop(reader, actors_in_thread, stream_actors_in_thread)
+                    .await
+            {
+                eprintln!("{}", e)
+            }
+        });
+
+        BrokerConnectionRemote::<T> {
+            writer: Box::pin(writer),
+            user,
+            actors: Arc::clone(&actors),
+            stream_actors: Arc::clone(&stream_actors),
+        }
+    }
 }

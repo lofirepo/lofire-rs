@@ -847,6 +847,24 @@ pub enum BlockGet {
     V0(BlockGetV0),
 }
 
+impl BlockGet {
+    pub fn id(&self) -> BlockId {
+        match self {
+            BlockGet::V0(o) => o.id,
+        }
+    }
+    pub fn include_children(&self) -> bool {
+        match self {
+            BlockGet::V0(o) => o.include_children,
+        }
+    }
+    pub fn topic(&self) -> Option<PubKey> {
+        match self {
+            BlockGet::V0(o) => o.topic,
+        }
+    }
+}
+
 /// Request to store an object
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub enum BlockPut {
@@ -979,7 +997,6 @@ pub enum TopicDisconnect {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub enum BrokerOverlayRequestContentV0 {
     OverlayConnect(OverlayConnect),
-    OverlayDisconnect(OverlayDisconnect),
     OverlayJoin(OverlayJoin),
     OverlayLeave(OverlayLeave),
     TopicSub(TopicSub),

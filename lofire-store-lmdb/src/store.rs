@@ -104,87 +104,12 @@ impl Store for LmdbStore {
         }
     }
 
-    /// Adds a block in the storage backend.
-    /// The block is persisted to disk.
-    /// Returns the BlockId of the Block.
-    fn put(&mut self, block: Block) -> Result<BlockId, StorePutError> {
-        let block_ser = serde_bare::to_vec(&block).unwrap();
-
-        let block_id = block.id();
-        let block_id_ser = serde_bare::to_vec(&block_id).unwrap();
-
-        let lock = self.environment.read().unwrap();
-        let mut writer = lock.write().unwrap();
-        self.main_store
-            .put(
-                &mut writer,
-                &block_id_ser,
-                &Value::Blob(block_ser.as_slice()),
-            )
-            .unwrap();
-
-        // if it has an expiry, adding the BlockId to the expiry_store
-        match block.expiry() {
-            Some(expiry) => {
-                self.expiry_store
-                    .put(&mut writer, expiry, &Value::Blob(block_id_ser.as_slice()))
-                    .unwrap();
-            }
-            _ => {}
-        }
-        writer.commit().unwrap();
-
-        Ok(block_id)
+    fn put(&mut self, block: &Block) -> Result<BlockId, StorePutError> {
+        self._put(block)
     }
 
-    /// Removes the block from the storage backend.
-    /// The removed block is returned, so it can be inspected.
-    /// Also returned is the approximate size of of free space that was reclaimed.
     fn del(&mut self, block_id: &BlockId) -> Result<(Block, usize), StoreDelError> {
-        let lock = self.environment.read().unwrap();
-        let mut writer = lock.write().unwrap();
-        let block_id_ser = serde_bare::to_vec(&block_id).unwrap();
-        // retrieving the block itself (we need the expiry)
-        let block_ser = self
-            .main_store
-            .get(&writer, block_id_ser.clone())
-            .unwrap()
-            .ok_or(StoreDelError::NotFound)?;
-        let slice = block_ser.to_bytes().unwrap();
-        let block = serde_bare::from_slice::<Block>(&slice).unwrap(); //FIXME propagate error?
-        let meta_res = self.meta_store.get(&writer, block_id_ser.clone()).unwrap();
-        if meta_res.is_some() {
-            let meta = serde_bare::from_slice::<BlockMeta>(&meta_res.unwrap().to_bytes().unwrap())
-                .unwrap();
-            if meta.last_used != 0 {
-                self.remove_from_lru(&mut writer, &block_id_ser.clone(), &meta.last_used)
-                    .unwrap();
-            }
-            // removing the meta
-            self.meta_store
-                .delete(&mut writer, block_id_ser.clone())
-                .unwrap();
-        }
-        // delete block from main_store
-        self.main_store
-            .delete(&mut writer, block_id_ser.clone())
-            .unwrap();
-        // remove BlockId from expiry_store, if any expiry
-        match block.expiry() {
-            Some(expiry) => {
-                self.expiry_store
-                    .delete(
-                        &mut writer,
-                        expiry,
-                        &Value::Blob(block_id_ser.clone().as_slice()),
-                    )
-                    .unwrap();
-            }
-            _ => {}
-        }
-
-        writer.commit().unwrap();
-        Ok((block, slice.len()))
+        self._del(block_id)
     }
 
     /// Load an account from the store.
@@ -262,6 +187,89 @@ impl LmdbStore {
             expiry_store,
             recently_used_store,
         }
+    }
+
+    /// Adds a block in the storage backend.
+    /// The block is persisted to disk.
+    /// Returns the BlockId of the Block.
+    pub fn _put(&self, block: &Block) -> Result<BlockId, StorePutError> {
+        let block_ser = serde_bare::to_vec(&block).unwrap();
+
+        let block_id = block.id();
+        let block_id_ser = serde_bare::to_vec(&block_id).unwrap();
+
+        let lock = self.environment.read().unwrap();
+        let mut writer = lock.write().unwrap();
+        self.main_store
+            .put(
+                &mut writer,
+                &block_id_ser,
+                &Value::Blob(block_ser.as_slice()),
+            )
+            .unwrap();
+
+        // if it has an expiry, adding the BlockId to the expiry_store
+        match block.expiry() {
+            Some(expiry) => {
+                self.expiry_store
+                    .put(&mut writer, expiry, &Value::Blob(block_id_ser.as_slice()))
+                    .unwrap();
+            }
+            _ => {}
+        }
+        writer.commit().unwrap();
+
+        Ok(block_id)
+    }
+
+    /// Removes the block from the storage backend.
+    /// The removed block is returned, so it can be inspected.
+    /// Also returned is the approximate size of of free space that was reclaimed.
+    fn _del(&self, block_id: &BlockId) -> Result<(Block, usize), StoreDelError> {
+        let lock = self.environment.read().unwrap();
+        let mut writer = lock.write().unwrap();
+        let block_id_ser = serde_bare::to_vec(&block_id).unwrap();
+        // retrieving the block itself (we need the expiry)
+        let block_ser = self
+            .main_store
+            .get(&writer, block_id_ser.clone())
+            .unwrap()
+            .ok_or(StoreDelError::NotFound)?;
+        let slice = block_ser.to_bytes().unwrap();
+        let block = serde_bare::from_slice::<Block>(&slice).unwrap(); //FIXME propagate error?
+        let meta_res = self.meta_store.get(&writer, block_id_ser.clone()).unwrap();
+        if meta_res.is_some() {
+            let meta = serde_bare::from_slice::<BlockMeta>(&meta_res.unwrap().to_bytes().unwrap())
+                .unwrap();
+            if meta.last_used != 0 {
+                self.remove_from_lru(&mut writer, &block_id_ser.clone(), &meta.last_used)
+                    .unwrap();
+            }
+            // removing the meta
+            self.meta_store
+                .delete(&mut writer, block_id_ser.clone())
+                .unwrap();
+        }
+        // delete block from main_store
+        self.main_store
+            .delete(&mut writer, block_id_ser.clone())
+            .unwrap();
+        // remove BlockId from expiry_store, if any expiry
+        match block.expiry() {
+            Some(expiry) => {
+                self.expiry_store
+                    .delete(
+                        &mut writer,
+                        expiry,
+                        &Value::Blob(block_id_ser.clone().as_slice()),
+                    )
+                    .unwrap();
+            }
+            _ => {}
+        }
+
+        writer.commit().unwrap();
+        Ok((block, slice.len()))
     }
 
     /// Pins the object
@@ -403,7 +411,7 @@ impl LmdbStore {
 
     /// Removes all the blocks that have expired.
     /// The broker should call this method periodically.
-    pub fn remove_expired(&mut self) -> Result<(), Error> {
+    pub fn remove_expired(&self) -> Result<(), Error> {
         let mut block_ids: Vec<BlockId> = vec![];
 
         {
@@ -424,7 +432,7 @@ impl LmdbStore {
             }
         }
         for block_id in block_ids {
-            self.del(&block_id).unwrap();
+            self._del(&block_id).unwrap();
         }
         Ok(())
     }
@@ -432,7 +440,7 @@ impl LmdbStore {
     /// Removes some blocks that haven't been used for a while, reclaiming some space on disk.
     /// The oldest are removed first, until the total amount of data removed is at least equal to size,
     /// or the LRU list became empty. The approximate size of the storage space that was reclaimed is returned.
-    pub fn remove_least_used(&mut self, size: usize) -> usize {
+    pub fn remove_least_used(&self, size: usize) -> usize {
         let mut block_ids: Vec<BlockId> = vec![];
         let mut total: usize = 0;
 
@@ -450,7 +458,7 @@ impl LmdbStore {
             }
         }
         for block_id in block_ids {
-            let (block, block_size) = self.del(&block_id).unwrap();
+            let (block, block_size) = self._del(&block_id).unwrap();
             println!("removed {:?}", block_id);
             total += block_size;
             if total >= size {
@@ -544,7 +552,7 @@ mod test {
                 expiry: None,
                 content: vec![x; 10],
             };
-            let block_id = store.put(Block::V0(block.clone())).unwrap();
+            let block_id = store.put(&Block::V0(block.clone())).unwrap();
             println!("#{} -> objId {:?}", x, block_id);
             store
                 .has_been_synced(&block_id, Some(now + x as u32))
@@ -576,7 +584,7 @@ mod test {
                 expiry: None,
                 content: vec![x; 10],
             };
-            let obj_id = store.put(Block::V0(block.clone())).unwrap();
+            let obj_id = store.put(&Block::V0(block.clone())).unwrap();
             println!("#{} -> objId {:?}", x, obj_id);
             store.set_pin(&obj_id, true).unwrap();
             store
@@ -649,7 +657,7 @@ mod test {
                 expiry: Some(expiry),
                 content: [i].to_vec(),
             };
-            let block_id = store.put(Block::V0(block.clone())).unwrap();
+            let block_id = store.put(&Block::V0(block.clone())).unwrap();
             println!("#{} -> objId {:?}", i, block_id);
             block_ids.push(block_id);
             i += 1;
@@ -697,7 +705,7 @@ mod test {
                 expiry: Some(expiry),
                 content: [i].to_vec(),
             };
-            let block_id = store.put(Block::V0(block.clone())).unwrap();
+            let block_id = store.put(&Block::V0(block.clone())).unwrap();
             println!("#{} -> objId {:?}", i, block_id);
             block_ids.push(block_id);
             i += 1;
@@ -744,7 +752,7 @@ mod test {
             content: b"abc".to_vec(),
         };
 
-        let block_id = store.put(Block::V0(block.clone())).unwrap();
+        let block_id = store.put(&Block::V0(block.clone())).unwrap();
 
         println!("ObjectId: {:?}", block_id);
         assert_eq!(

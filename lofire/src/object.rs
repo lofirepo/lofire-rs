@@ -321,7 +321,7 @@ impl Object {
     /// Save blocks of the object in the store
     pub fn save(&self, store: &mut impl Store) -> Result<(), StorePutError> {
         for block in &self.blocks {
-            store.put(block.clone())?;
+            store.put(block)?;
         }
         Ok(())
     }

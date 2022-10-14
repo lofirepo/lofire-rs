@@ -1,9 +1,11 @@
 use crate::types::BrokerMessage;
+use core::fmt;
 use lofire::types::Block;
 use num_enum::IntoPrimitive;
 use num_enum::TryFromPrimitive;
 use std::convert::From;
 use std::convert::TryFrom;
+use std::error::Error;
 
 #[derive(Debug, Eq, PartialEq, TryFromPrimitive, IntoPrimitive, Clone)]
 #[repr(u16)]
@@ -18,6 +20,22 @@ pub enum ProtocolError {
     PartialContent,
     AccessDenied,
     OverlayNotJoined,
+    NotFound,
+    EndOfStream,
+}
+
+impl ProtocolError {
+    pub fn is_stream(&self) -> bool {
+        *self == ProtocolError::PartialContent || *self == ProtocolError::EndOfStream
+    }
+}
+
+impl Error for ProtocolError {}
+
+impl fmt::Display for ProtocolError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{:?}", self)
+    }
 }
 
 impl From<lofire::errors::LofireError> for ProtocolError {
@@ -47,18 +65,41 @@ impl From<BrokerMessage> for Result<(), ProtocolError> {
     }
 }
 
-/// Option represents if a Block is available. canot be returned here. call BrokerMessage.response_block() to get a reference to it.
+/// Option represents if a Block is available. cannot be returned here. call BrokerMessage.response_block() to get a reference to it.
 impl From<BrokerMessage> for Result<Option<u16>, ProtocolError> {
     fn from(msg: BrokerMessage) -> Self {
         if !msg.is_response() {
             panic!("BrokerMessage is not a response");
         }
-        let partial: u16 = ProtocolError::PartialContent.into();
+        //let partial: u16 = ProtocolError::PartialContent.into();
         let res = msg.result();
-        if res == 0 || res == partial {
+        if res == 0 || ProtocolError::try_from(res).unwrap().is_stream() {
             if msg.is_overlay() {
                 match msg.response_block() {
                     Some(_) => Ok(Some(res)),
+                    None => Ok(None),
+                }
+            } else {
+                Ok(None)
+            }
+        } else {
+            Err(ProtocolError::try_from(res).unwrap())
+        }
+    }
+}
+
+/// Option represents if a Block is available. returns a clone.
+impl From<BrokerMessage> for Result<Option<Block>, ProtocolError> {
+    fn from(msg: BrokerMessage) -> Self {
+        if !msg.is_response() {
+            panic!("BrokerMessage is not a response");
+        }
+        //let partial: u16 = ProtocolError::PartialContent.into();
+        let res = msg.result();
+        if res == 0 || ProtocolError::try_from(res).unwrap().is_stream() {
+            if msg.is_overlay() {
+                match msg.response_block() {
+                    Some(b) => Ok(Some(b.clone())),
                     None => Ok(None),
                 }
             } else {
