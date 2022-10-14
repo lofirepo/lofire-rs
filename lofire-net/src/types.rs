@@ -831,8 +831,8 @@ pub enum OverlayLeave {
 /// Request a Block by ID
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct BlockGetV0 {
-    /// List of Block IDs to request
-    pub ids: Vec<BlockId>,
+    /// Block ID to request
+    pub id: BlockId,
 
     /// Whether or not to include all children recursively
     pub include_children: bool,
