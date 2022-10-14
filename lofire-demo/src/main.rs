@@ -14,6 +14,8 @@ use lofire_net::errors::*;
 use lofire_net::types::*;
 
 async fn test_local_connection() {
+    debug_println!("===== TESTING LOCAL API =====");
+
     let root = tempfile::Builder::new()
         .prefix("node-daemon")
         .tempdir()
@@ -39,7 +41,58 @@ async fn test_local_connection() {
         peers: vec![],
     });
 
-    cnx.overlay_connect(&repo, false);
+    let mut public_overlay_cnx = cnx
+        .overlay_connect(&repo, true)
+        .await
+        .expect("overlay_connect failed");
+
+    let my_block_id = public_overlay_cnx
+        .put_block(&Block::V0(BlockV0 {
+            children: vec![],
+            deps: ObjectDeps::ObjectIdList(vec![]),
+            expiry: None,
+            content: vec![27; 150],
+        }))
+        .await
+        .expect("put_block failed");
+
+    debug_println!("added block_id to store {}", my_block_id);
+
+    let object_id = public_overlay_cnx
+        .put_object(
+            ObjectContent::File(File::V0(FileV0 {
+                content_type: vec![],
+                metadata: vec![],
+                content: vec![48; 69000],
+            })),
+            vec![],
+            None,
+            0,
+            repo.id(),
+            repo.secret(),
+        )
+        .await
+        .expect("put_object failed");
+
+    debug_println!("added object_id to store {}", object_id);
+
+    let mut my_block_stream = public_overlay_cnx
+        .get_block(my_block_id, true, None)
+        .await
+        .expect("get_block failed");
+
+    while let Some(b) = my_block_stream.next().await {
+        debug_println!("GOT BLOCK {}", b.id());
+    }
+
+    let mut my_object_stream = public_overlay_cnx
+        .get_block(object_id, true, None)
+        .await
+        .expect("get_object failed");
+
+    while let Some(b) = my_object_stream.next().await {
+        debug_println!("GOT BLOCK {}", b.id());
+    }
 }
 
 #[xactor::main]
@@ -47,6 +100,8 @@ async fn main() -> std::io::Result<()> {
     debug_println!("Starting LoFiRe app demo...");
 
     test_local_connection().await;
+
+    debug_println!("===== TESTING REMOTE API =====");
 
     let (ws, _) = connect_async("ws://127.0.0.1:3012")
         .await
@@ -85,8 +140,8 @@ async fn main() -> std::io::Result<()> {
                 .expect("add_user 2 failed");
 
             let repo = RepoLink::V0(RepoLinkV0 {
-                id: PubKey::Ed25519PubKey([20; 32]),
-                secret: SymKey::ChaCha20Key([2; 32]),
+                id: PubKey::Ed25519PubKey([1; 32]),
+                secret: SymKey::ChaCha20Key([0; 32]),
                 peers: vec![],
             });
             let mut public_overlay_cnx = cnx
@@ -94,7 +149,7 @@ async fn main() -> std::io::Result<()> {
                 .await
                 .expect("overlay_connect failed");
 
-            public_overlay_cnx
+            let my_block_id = public_overlay_cnx
                 .put_block(&Block::V0(BlockV0 {
                     children: vec![],
                     deps: ObjectDeps::ObjectIdList(vec![]),
@@ -103,6 +158,8 @@ async fn main() -> std::io::Result<()> {
                 }))
                 .await
                 .expect("put_block failed");
+
+            debug_println!("added block_id to store {}", my_block_id);
 
             let object_id = public_overlay_cnx
                 .put_object(
@@ -120,7 +177,25 @@ async fn main() -> std::io::Result<()> {
                 .await
                 .expect("put_object failed");
 
-            debug_println!("added object_id to store {:?}", object_id);
+            debug_println!("added object_id to store {}", object_id);
+
+            let mut my_block_stream = public_overlay_cnx
+                .get_block(my_block_id, true, None)
+                .await
+                .expect("get_block failed");
+
+            while let Some(b) = my_block_stream.next().await {
+                debug_println!("GOT BLOCK {}", b.id());
+            }
+
+            let mut my_object_stream = public_overlay_cnx
+                .get_block(object_id, true, None)
+                .await
+                .expect("get_block for object failed");
+
+            while let Some(b) = my_object_stream.next().await {
+                debug_println!("GOT BLOCK {}", b.id());
+            }
         }
         Err(e) => {
             debug_println!("cannot connect {:?}", e);

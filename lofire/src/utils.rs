@@ -37,16 +37,16 @@ pub fn verify(content: &Vec<u8>, sig: Sig, pub_key: PubKey) -> Result<(), Lofire
 pub fn generate_keypair() -> (PrivKey, PubKey) {
     let mut csprng = OsRng {};
     let keypair: Keypair = Keypair::generate(&mut csprng);
-    println!(
-        "private key: ({}) {:?}",
-        keypair.secret.as_bytes().len(),
-        keypair.secret.as_bytes()
-    );
-    println!(
-        "public key: ({}) {:?}",
-        keypair.public.as_bytes().len(),
-        keypair.public.as_bytes()
-    );
+    // println!(
+    //     "private key: ({}) {:?}",
+    //     keypair.secret.as_bytes().len(),
+    //     keypair.secret.as_bytes()
+    // );
+    // println!(
+    //     "public key: ({}) {:?}",
+    //     keypair.public.as_bytes().len(),
+    //     keypair.public.as_bytes()
+    // );
     let ed_priv_key = keypair.secret.to_bytes();
     let ed_pub_key = keypair.public.to_bytes();
     let priv_key = PrivKey::Ed25519PrivKey(ed_priv_key);

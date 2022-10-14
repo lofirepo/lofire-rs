@@ -4,8 +4,10 @@ use std::sync::Arc;
 
 use crate::auth::*;
 use crate::connection::BrokerConnectionLocal;
+use async_std::task;
 use debug_print::*;
 use futures::Stream;
+use lofire::object::Object;
 use lofire::store::Store;
 use lofire::types::*;
 use lofire::utils::*;
@@ -28,9 +30,15 @@ pub struct ProtocolHandler {
     auth_protocol: Option<AuthProtocolHandler>,
     broker_protocol: Option<BrokerProtocolHandler>,
     ext_protocol: Option<ExtProtocolHandler>,
+    r: Option<async_channel::Receiver<Vec<u8>>>,
+    s: async_channel::Sender<Vec<u8>>,
 }
 
 impl ProtocolHandler {
+    pub fn async_frames_receiver(&mut self) -> async_channel::Receiver<Vec<u8>> {
+        self.r.take().unwrap()
+    }
+
     /// Handle incoming message
     // FIXME return ProtocolError instead of panic via unwrap()
     pub fn handle_incoming(&mut self, frame: Vec<u8>) -> Vec<Result<Vec<u8>, ProtocolError>> {
@@ -60,6 +68,7 @@ impl ProtocolHandler {
                     self.broker_protocol = Some(BrokerProtocolHandler {
                         user: self.auth_protocol.as_ref().unwrap().get_user().unwrap(),
                         broker: Arc::clone(&self.broker),
+                        async_frames_sender: self.s.clone(),
                     });
                     self.auth_protocol = None;
                 }
@@ -97,6 +106,7 @@ impl ExtProtocolHandler {
 pub struct BrokerProtocolHandler {
     broker: Arc<BrokerServer>,
     user: PubKey,
+    async_frames_sender: async_channel::Sender<Vec<u8>>,
 }
 
 impl BrokerProtocolHandler {
@@ -239,13 +249,48 @@ impl BrokerProtocolHandler {
                                 b.include_children(),
                                 b.topic(),
                             );
-                            // return an error or the first block, and setup a spawner for the remain blocks to be sent.
+                            // return an error or the first block, and setup a spawner for the remaining blocks to be sent.
                             let one_reply = match res {
                                 Err(e) => Err(e),
-                                Ok(stream) => stream
-                                    .recv_blocking()
-                                    .map_err(|e| ProtocolError::EndOfStream),
+                                Ok(stream) => {
+                                    let one = stream
+                                        .recv_blocking()
+                                        .map_err(|e| ProtocolError::EndOfStream);
+
+                                    if one.is_ok() {
+                                        let sender = self.async_frames_sender.clone();
+                                        task::spawn(async move {
+                                            while let Ok(next) = stream.recv().await {
+                                                let msg= Self::prepare_reply_broker_overlay_message_stream(
+                                                    Ok(next),
+                                                    id,
+                                                    overlay,
+                                                    padding_size,
+                                                );
+                                                let res = sender
+                                                    .send(serde_bare::to_vec(&msg).unwrap())
+                                                    .await;
+                                                if res.is_err() {
+                                                    break;
+                                                }
+                                            }
+                                            // sending end of stream
+                                            let msg =
+                                                Self::prepare_reply_broker_overlay_message_stream(
+                                                    Err(ProtocolError::EndOfStream),
+                                                    id,
+                                                    overlay,
+                                                    padding_size,
+                                                );
+                                            let _ = sender
+                                                .send(serde_bare::to_vec(&msg).unwrap())
+                                                .await;
+                                        });
+                                    }
+                                    one
+                                }
                             };
+
                             return Self::prepare_reply_broker_overlay_message_stream(
                                 one_reply,
                                 id,
@@ -277,12 +322,15 @@ impl BrokerServer {
     }
 
     pub fn protocol_handler(self: Arc<Self>) -> ProtocolHandler {
+        let (s, r) = async_channel::unbounded::<Vec<u8>>();
         return ProtocolHandler {
             broker: Arc::clone(&self),
             protocol: ProtocolType::Start,
             auth_protocol: None,
             broker_protocol: None,
             ext_protocol: None,
+            r: Some(r),
+            s,
         };
     }
 
@@ -292,7 +340,7 @@ impl BrokerServer {
         admin_user: PubKey,
         sig: Sig,
     ) -> Result<(), ProtocolError> {
-        debug_println!("ADDING USER {:?}", user_id);
+        debug_println!("ADDING USER {}", user_id);
         // TODO implement add_user
 
         // check that admin_user is indeed an admin
@@ -327,6 +375,7 @@ impl BrokerServer {
     }
 
     pub fn block_put(&self, overlay: Digest, block: &Block) -> Result<(), ProtocolError> {
+        // TODO put in the right store. there must be one store by repo (find the repo by the overlayId)
         let _ = self.store._put(block)?;
         Ok(())
     }
@@ -338,13 +387,27 @@ impl BrokerServer {
         include_children: bool,
         topic: Option<PubKey>,
     ) -> Result<async_channel::Receiver<Block>, ProtocolError> {
-        unimplemented!();
-
-        // if !include_children {
-        //     for id in ids {
-        //         self.store.get()
-        //     }
-        // }
+        let (s, r) = async_channel::unbounded::<Block>();
+        if !include_children {
+            let block = self.store.get(&id)?;
+            s.send_blocking(block)
+                .map_err(|e| ProtocolError::CannotSend)?;
+            Ok(r)
+        } else {
+            let obj = Object::from_store(id, None, &self.store);
+            // TODO return partial blocks when some are missing ?
+            if obj.is_err() {
+                //&& obj.err().unwrap().len() == 1 && obj.err().unwrap()[0] == id {
+                return Err(ProtocolError::NotFound);
+            }
+            // todo, use a task to send non blocking (streaming)
+            let o = obj.ok().unwrap();
+            debug_println!("{} BLOCKS ", o.blocks().len());
+            for block in o.blocks() {
+                s.send_blocking(block.clone());
+            }
+            Ok(r)
+        }
     }
 
     pub fn overlay_join(

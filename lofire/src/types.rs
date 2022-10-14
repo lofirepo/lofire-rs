@@ -2,6 +2,7 @@
 //!
 //! Corresponds to the BARE schema
 
+use core::fmt;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::hash::Hash;
@@ -17,6 +18,14 @@ pub type Blake3Digest32 = [u8; 32];
 #[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq, Eq, Hash)]
 pub enum Digest {
     Blake3Digest32(Blake3Digest32),
+}
+
+impl fmt::Display for Digest {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Digest::Blake3Digest32(d) => write!(f, "{}", hex::encode(d)),
+        }
+    }
 }
 
 /// ChaCha20 symmetric key
@@ -52,6 +61,14 @@ impl PubKey {
     pub fn slice(&self) -> &[u8; 32] {
         match self {
             PubKey::Ed25519PubKey(o) => o,
+        }
+    }
+}
+
+impl fmt::Display for PubKey {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            PubKey::Ed25519PubKey(d) => write!(f, "{}", hex::encode(d)),
         }
     }
 }

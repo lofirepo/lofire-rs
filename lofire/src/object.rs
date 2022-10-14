@@ -105,8 +105,8 @@ impl Object {
                 content: content_enc,
             });
             let key = SymKey::ChaCha20Key(key.clone());
-            debug_println!(">>> make_object:");
-            debug_println!("!! id: {:?}", obj.id());
+            //debug_println!(">>> make_object:");
+            //debug_println!("!! id: {:?}", obj.id());
             //debug_println!("!! children: ({}) {:?}", children.len(), children);
             (obj, key)
         }
@@ -169,7 +169,7 @@ impl Object {
                     expiry,
                 ));
             }
-            debug_println!("parents += {}", parents.len());
+            //debug_println!("parents += {}", parents.len());
 
             if 1 < parents.len() {
                 let mut great_parents = make_tree(

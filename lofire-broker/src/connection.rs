@@ -51,6 +51,8 @@ impl BrokerMessageActor {
 struct BrokerMessageStreamActor {
     r: Option<async_channel::Receiver<Block>>,
     s: async_channel::Sender<Block>,
+    error_r: Option<async_oneshot::Receiver<Option<ProtocolError>>>,
+    error_s: Option<async_oneshot::Sender<Option<ProtocolError>>>,
 }
 
 impl Actor for BrokerMessageStreamActor {}
@@ -58,9 +60,16 @@ impl Actor for BrokerMessageStreamActor {}
 impl BrokerMessageStreamActor {
     fn new() -> BrokerMessageStreamActor {
         let (s, r) = async_channel::unbounded::<Block>();
-        BrokerMessageStreamActor { r: Some(r), s }
+        let (error_s, error_r) = oneshot::<Option<ProtocolError>>();
+        BrokerMessageStreamActor {
+            r: Some(r),
+            s,
+            error_r: Some(error_r),
+            error_s: Some(error_s),
+        }
     }
     async fn partial(&mut self, block: Block) -> Result<(), ProtocolError> {
+        //debug_println!("GOT PARTIAL {:?}", block.id());
         self.s
             .send(block)
             .await
@@ -71,6 +80,17 @@ impl BrokerMessageStreamActor {
         self.r.take().unwrap()
     }
 
+    fn error_receiver(&mut self) -> async_oneshot::Receiver<Option<ProtocolError>> {
+        self.error_r.take().unwrap()
+    }
+
+    fn send_error(&mut self, err: Option<ProtocolError>) {
+        if self.error_s.is_some() {
+            let _ = self.error_s.take().unwrap().send(err);
+            self.error_s = None;
+        }
+    }
+
     fn close(&mut self) {
         self.s.close();
     }
@@ -79,7 +99,7 @@ impl BrokerMessageStreamActor {
 #[async_trait::async_trait]
 impl Handler<BrokerMessageXActor> for BrokerMessageActor {
     async fn handle(&mut self, ctx: &mut xactor::Context<Self>, msg: BrokerMessageXActor) {
-        println!("handling {:?}", msg.0);
+        //println!("handling {:?}", msg.0);
         self.resolve(msg.0);
         ctx.stop(None);
     }
@@ -88,19 +108,25 @@ impl Handler<BrokerMessageXActor> for BrokerMessageActor {
 #[async_trait::async_trait]
 impl Handler<BrokerMessageXActor> for BrokerMessageStreamActor {
     async fn handle(&mut self, ctx: &mut xactor::Context<Self>, msg: BrokerMessageXActor) {
-        println!("handling {:?}", msg.0);
+        //println!("handling {:?}", msg.0);
         let res: Result<Option<Block>, ProtocolError> = msg.0.into();
         match res {
             Err(e) => {
-                // TODO pass the error code in a different way, as this cannot be retrieved
-                ctx.stop(Some(xactor::Error::new(e)));
+                self.send_error(Some(e));
+                ctx.stop(None);
                 self.close();
             }
             Ok(Some(b)) => {
+                self.send_error(None);
                 // it must be a partial content
-                self.partial(b);
+                let res = self.partial(b).await;
+                if let Err(e) = res {
+                    ctx.stop(None);
+                    self.close();
+                }
             }
             Ok(None) => {
+                self.send_error(None);
                 ctx.stop(None);
                 self.close();
             }
@@ -137,6 +163,19 @@ impl<'a, T> OverlayConnectionClient<'a, T>
 where
     T: BrokerConnection,
 {
+    pub fn overlay(repo_link: &RepoLink, public: bool) -> OverlayId {
+        let overlay: OverlayId = match public {
+            true => Digest::Blake3Digest32(*blake3::hash(repo_link.id().slice()).as_bytes()),
+            false => {
+                let key: [u8; blake3::OUT_LEN] =
+                    blake3::derive_key("LoFiRe OverlayId BLAKE3 key", repo_link.secret().slice());
+                let keyed_hash = blake3::keyed_hash(&key, repo_link.id().slice());
+                Digest::Blake3Digest32(*keyed_hash.as_bytes())
+            }
+        };
+        overlay
+    }
+
     pub fn sync_branch(&self) {}
 
     pub fn leave(&self) {}
@@ -155,7 +194,7 @@ where
         id: BlockId,
         include_children: bool,
         topic: Option<PubKey>,
-    ) -> Result<T::BlockStream, ProtocolError> {
+    ) -> Result<Pin<Box<T::BlockStream>>, ProtocolError> {
         self.broker
             .process_overlay_request_stream_response(
                 self.overlay,
@@ -197,6 +236,7 @@ where
             repo_pubkey,
             repo_secret,
         );
+        debug_println!("object has {} blocks", obj.blocks().len());
         for block in obj.blocks() {
             let _ = self.put_block(block).await?;
         }
@@ -261,11 +301,11 @@ pub trait BrokerConnection {
         &mut self,
         overlay: OverlayId,
         request: BrokerOverlayRequestContentV0,
-    ) -> Result<Self::BlockStream, ProtocolError>;
+    ) -> Result<Pin<Box<Self::BlockStream>>, ProtocolError>;
 }
 
 pub struct BrokerConnectionLocal<'a> {
-    server: &'a mut BrokerServer,
+    broker: &'a mut BrokerServer,
     user: PubKey,
 }
 
@@ -282,7 +322,7 @@ impl<'a> BrokerConnection for BrokerConnectionLocal<'a> {
         let op_content = AddUserContentV0 { user: user_id };
         let sig = sign(admin_user_pk, self.user, &serde_bare::to_vec(&op_content)?)?;
 
-        self.server.add_user(user_id, self.user, sig)
+        self.broker.add_user(user_id, self.user, sig)
     }
 
     async fn process_overlay_request(
@@ -290,15 +330,31 @@ impl<'a> BrokerConnection for BrokerConnectionLocal<'a> {
         overlay: OverlayId,
         request: BrokerOverlayRequestContentV0,
     ) -> Result<(), ProtocolError> {
-        unimplemented!();
+        match request {
+            BrokerOverlayRequestContentV0::OverlayConnect(_) => {
+                self.broker.overlay_connect(overlay)
+            }
+            BrokerOverlayRequestContentV0::OverlayJoin(j) => {
+                self.broker.overlay_join(overlay, j.secret(), j.peers())
+            }
+            BrokerOverlayRequestContentV0::BlockPut(b) => self.broker.block_put(overlay, b.block()),
+            _ => Err(ProtocolError::InvalidState),
+        }
     }
 
     async fn process_overlay_request_stream_response(
         &mut self,
         overlay: OverlayId,
         request: BrokerOverlayRequestContentV0,
-    ) -> Result<Self::BlockStream, ProtocolError> {
-        unimplemented!();
+    ) -> Result<Pin<Box<Self::BlockStream>>, ProtocolError> {
+        match request {
+            // TODO BranchSyncReq
+            BrokerOverlayRequestContentV0::BlockGet(b) => self
+                .broker
+                .block_get(overlay, b.id(), b.include_children(), b.topic())
+                .map(|r| Box::pin(r)),
+            _ => Err(ProtocolError::InvalidState),
+        }
     }
 
     async fn del_user(&mut self) {}
@@ -309,17 +365,22 @@ impl<'a> BrokerConnection for BrokerConnectionLocal<'a> {
 
     async fn overlay_connect(
         &mut self,
-        repo: &RepoLink,
+        repo_link: &RepoLink,
         public: bool,
     ) -> Result<OverlayConnectionClient<BrokerConnectionLocal<'a>>, ProtocolError> {
-        unimplemented!();
-        //OverlayConnectionClient { broker: self }
+        let overlay =
+            OverlayConnectionClient::<BrokerConnectionLocal<'a>>::overlay(repo_link, public);
+        Ok(OverlayConnectionClient {
+            broker: self,
+            repo_link: repo_link.clone(),
+            overlay,
+        })
     }
 }
 
 impl<'a> BrokerConnectionLocal<'a> {
-    pub fn new(server: &'a mut BrokerServer, user: PubKey) -> BrokerConnectionLocal<'a> {
-        BrokerConnectionLocal { server, user }
+    pub fn new(broker: &'a mut BrokerServer, user: PubKey) -> BrokerConnectionLocal<'a> {
+        BrokerConnectionLocal { broker, user }
     }
 }
 
@@ -362,7 +423,7 @@ impl ConnectionRemote {
 
         let server_hello = serde_bare::from_slice::<ServerHello>(&answer.unwrap()).unwrap();
 
-        debug_println!("received nonce from server: {:?}", server_hello.nonce());
+        //debug_println!("received nonce from server: {:?}", server_hello.nonce());
 
         let content = ClientAuthContentV0 {
             user,
@@ -374,7 +435,7 @@ impl ConnectionRemote {
             .map_err(|_e| ProtocolError::SignatureError)?;
 
         let auth_ser = serde_bare::to_vec(&ClientAuth::V0(ClientAuthV0 { content, sig })).unwrap();
-        debug_println!("AUTH SENT {:?}", auth_ser);
+        //debug_println!("AUTH SENT {:?}", auth_ser);
         writer
             .send(auth_ser)
             .await
@@ -429,16 +490,17 @@ where
         &mut self,
         overlay: OverlayId,
         request: BrokerOverlayRequestContentV0,
-    ) -> Result<Self::BlockStream, ProtocolError> {
+    ) -> Result<Pin<Box<Self::BlockStream>>, ProtocolError> {
         let mut actor = BrokerMessageStreamActor::new();
         let receiver = actor.receiver();
+        let error_receiver = actor.error_receiver();
         let mut addr = actor
             .start()
             .await
             .map_err(|_e| ProtocolError::ActorError)?;
 
         let request_id = addr.actor_id();
-        debug_println!("actor ID {}", request_id);
+        //debug_println!("actor ID {}", request_id);
 
         {
             let mut map = self.stream_actors.write().expect("RwLock poisoned");
@@ -463,18 +525,25 @@ where
             .await
             .map_err(|_e| ProtocolError::CannotSend)?;
 
-        debug_println!("waiting for reply");
+        //debug_println!("waiting for first reply");
+        let reply = error_receiver.await.unwrap();
+        match reply {
+            Some(e) => {
+                let mut map = self.stream_actors.write().expect("RwLock poisoned");
+                map.remove(&request_id);
+                return Err(e);
+            }
+            None => {
+                let stream_actors_in_thread = Arc::clone(&self.stream_actors);
+                task::spawn(async move {
+                    addr.wait_for_stop().await; // TODO add timeout
+                    let mut map = stream_actors_in_thread.write().expect("RwLock poisoned");
+                    map.remove(&request_id);
+                });
 
-        addr.wait_for_stop().await; // TODO add timeout
-                                    //let reply = receiver.await.unwrap();
-
-        //debug_println!("reply arrived {:?}", reply);
-        {
-            let mut map = self.stream_actors.write().expect("RwLock poisoned");
-            map.remove(&request_id);
+                Ok(Box::pin(receiver))
+            }
         }
-        //reply.into()
-        Err(ProtocolError::NotFound)
     }
 
     async fn process_overlay_request(
@@ -550,20 +619,12 @@ where
 
     async fn overlay_connect(
         &mut self,
-        repo: &RepoLink,
+        repo_link: &RepoLink,
         public: bool,
     ) -> Result<OverlayConnectionClient<BrokerConnectionRemote<T>>, ProtocolError> {
-        let overlay: OverlayId = match public {
-            true => Digest::Blake3Digest32(*blake3::hash(repo.id().slice()).as_bytes()),
-            false => {
-                let key: [u8; blake3::OUT_LEN] =
-                    blake3::derive_key("LoFiRe OverlayId BLAKE3 key", repo.secret().slice());
-                let keyed_hash = blake3::keyed_hash(&key, repo.id().slice());
-                Digest::Blake3Digest32(*keyed_hash.as_bytes())
-            }
-        };
-
         // sending OverlayConnect
+        let overlay =
+            OverlayConnectionClient::<BrokerConnectionRemote<T>>::overlay(repo_link, public);
         let res = self
             .process_overlay_request(
                 overlay,
@@ -580,8 +641,8 @@ where
                             overlay,
                             BrokerOverlayRequestContentV0::OverlayJoin(OverlayJoin::V0(
                                 OverlayJoinV0 {
-                                    secret: repo.secret(),
-                                    peers: repo.peers(),
+                                    secret: repo_link.secret(),
+                                    peers: repo_link.peers(),
                                     repo_pubkey: None,
                                     repo_secret: None,
                                 },
@@ -599,7 +660,7 @@ where
 
         Ok(OverlayConnectionClient {
             broker: self,
-            repo_link: repo.clone(),
+            repo_link: repo_link.clone(),
             overlay,
         })
     }
@@ -620,7 +681,7 @@ where
     ) -> OkResult<()> {
         let mut s = stream;
         while let Some(message) = s.next().await {
-            debug_println!("GOT MESSAGE {:?}", message);
+            //debug_println!("GOT MESSAGE {:?}", message);
 
             // TODO check FSM
 
@@ -629,7 +690,7 @@ where
                 // TODO close connection. a client is not supposed to receive requests.
             } else if message.is_response() {
                 let id = message.id();
-                debug_println!("is response {}", id);
+                //debug_println!("is response for {}", id);
                 {
                     let map = actors.read().expect("RwLock poisoned");
                     match map.get(&id) {
@@ -643,7 +704,6 @@ where
                             }
                         },
                         None => {
-                            debug_println!("Actor ID not found {}", id);
                             let map2 = stream_actors.read().expect("RwLock poisoned");
                             match map2.get(&id) {
                                 Some(weak_addr) => match weak_addr.upgrade() {
@@ -656,7 +716,7 @@ where
                                     }
                                 },
                                 None => {
-                                    debug_println!("Stream Actor ID not found {}", id);
+                                    debug_println!("Actor ID not found {}", id);
                                 }
                             }
                         }

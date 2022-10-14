@@ -1,4 +1,5 @@
 use async_std::net::{TcpListener, TcpStream};
+use async_std::sync::Mutex;
 use async_std::task;
 use async_tungstenite::accept_async;
 use async_tungstenite::tungstenite::protocol::Message;
@@ -6,14 +7,31 @@ use debug_print::*;
 use futures::{SinkExt, StreamExt};
 use lofire_broker::server::*;
 use lofire_store_lmdb::store::LmdbStore;
+use std::fs;
 use std::sync::Arc;
-use std::{fs, thread};
 use tempfile::Builder;
 
 async fn connection_loop(tcp: TcpStream, mut handler: ProtocolHandler) -> std::io::Result<()> {
-    let mut ws = accept_async(tcp).await.unwrap();
+    let ws = accept_async(tcp).await.unwrap();
+    let (mut tx, mut rx) = ws.split();
 
-    while let Some(msg) = ws.next().await {
+    let mut tx_mutex = Arc::new(Mutex::new(tx));
+
+    // setup the async frames task
+    let receiver = handler.async_frames_receiver();
+    let ws_in_task = Arc::clone(&tx_mutex);
+    task::spawn(async move {
+        while let Ok(frame) = receiver.recv().await {
+            ws_in_task
+                .lock()
+                .await
+                .send(Message::binary(frame))
+                .await
+                .unwrap() // FIXME deal with sending errors (close the connection?)
+        }
+    });
+
+    while let Some(msg) = rx.next().await {
         let msg = match msg {
             Err(e) => {
                 debug_println!("Error on server stream: {:?}", e);
@@ -35,7 +53,13 @@ async fn connection_loop(tcp: TcpStream, mut handler: ProtocolHandler) -> std::i
                         break;
                     }
                     Ok(r) => {
-                        ws.send(Message::binary(r)).await.unwrap() // FIXME deal with sending errors (close the connection?)
+                        tx_mutex
+                            .lock()
+                            .await
+                            .send(Message::binary(r))
+                            .await
+                            .unwrap()
+                        // FIXME deal with sending errors (close the connection?)
                     }
                 }
             }
