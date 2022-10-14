@@ -327,7 +327,7 @@ impl BrokerServer {
     }
 
     pub fn block_put(&self, overlay: Digest, block: &Block) -> Result<(), ProtocolError> {
-        self.store._put(block);
+        let _ = self.store._put(block)?;
         Ok(())
     }
 

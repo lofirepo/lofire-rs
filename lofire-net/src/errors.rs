@@ -22,6 +22,7 @@ pub enum ProtocolError {
     OverlayNotJoined,
     NotFound,
     EndOfStream,
+    StoreError,
 }
 
 impl ProtocolError {
@@ -43,6 +44,32 @@ impl From<lofire::errors::LofireError> for ProtocolError {
         match e {
             lofire::errors::LofireError::InvalidSignature => ProtocolError::InvalidSignature,
             lofire::errors::LofireError::SerializationError => ProtocolError::SerializationError,
+        }
+    }
+}
+
+impl From<lofire::store::StoreGetError> for ProtocolError {
+    fn from(e: lofire::store::StoreGetError) -> Self {
+        match e {
+            lofire::store::StoreGetError::NotFound => ProtocolError::NotFound,
+            _ => ProtocolError::StoreError,
+        }
+    }
+}
+
+impl From<lofire::store::StorePutError> for ProtocolError {
+    fn from(e: lofire::store::StorePutError) -> Self {
+        match e {
+            _ => ProtocolError::StoreError,
+        }
+    }
+}
+
+impl From<lofire::store::StoreDelError> for ProtocolError {
+    fn from(e: lofire::store::StoreDelError) -> Self {
+        match e {
+            lofire::store::StoreDelError::NotFound => ProtocolError::NotFound,
+            _ => ProtocolError::StoreError,
         }
     }
 }
