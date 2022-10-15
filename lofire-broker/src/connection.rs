@@ -765,7 +765,6 @@ where
                                     secret: repo_link.secret(),
                                     peers: repo_link.peers(),
                                     repo_pubkey: None,
-                                    repo_secret: None,
                                 },
                             )),
                         )

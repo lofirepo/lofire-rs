@@ -823,8 +823,15 @@ pub enum OverlayLeave {
     V0(),
 }
 
+/// Overlay status request
+#[derive(Clone, Copy, Debug, Serialize, Deserialize)]
+pub enum OverlayStatusReq {
+    V0(),
+}
+
+/// Overlay status response
 #[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct OverlayStatusV0 {
+pub struct OverlayStatusRespV0 {
     /// Whether or not the broker has joined the overlay
     pub joined: bool,
 
@@ -832,10 +839,10 @@ pub struct OverlayStatusV0 {
     pub peers: Vec<PeerAdvert>,
 }
 
-/// Request to join an overlay
+/// Overlay status response
 #[derive(Clone, Debug, Serialize, Deserialize)]
-pub enum OverlayStatus {
-    V0(OverlayStatusV0),
+pub enum OverlayStatusResp {
+    V0(OverlayStatusRespV0),
 }
 
 /// Request a Block by ID
@@ -1043,7 +1050,8 @@ pub enum TopicDisconnect {
 /// Content of `BrokerOverlayRequestV0`
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub enum BrokerOverlayRequestContentV0 {
-    OverlayStatus(OverlayStatus),
+    OverlayConnect(OverlayConnect), // FIXME remove
+    OverlayStatusReq(OverlayStatusReq),
     OverlayJoin(OverlayJoin),
     OverlayLeave(OverlayLeave),
     TopicSub(TopicSub),
@@ -1094,6 +1102,7 @@ impl BrokerOverlayRequest {
 pub enum BrokerOverlayResponseContentV0 {
     Block(Block),
     ObjectId(ObjectId),
+    OverlayStatusResp(OverlayStatusResp),
 }
 
 /// Response to a `BrokerOverlayRequest`
