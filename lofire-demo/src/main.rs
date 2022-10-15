@@ -8,7 +8,7 @@ use lofire_store_lmdb::store::LmdbStore;
 use std::thread;
 
 use lofire::types::*;
-use lofire::utils::generate_keypair;
+use lofire::utils::{generate_keypair, now_timestamp};
 use lofire_broker::connection::*;
 use lofire_broker::server::*;
 use lofire_net::errors::*;
@@ -19,34 +19,20 @@ fn block_size() -> usize {
     //store_valid_value_size(0)
 }
 
-async fn test_local_connection() {
-    debug_println!("===== TESTING LOCAL API =====");
-
-    let root = tempfile::Builder::new()
-        .prefix("node-daemon")
-        .tempdir()
-        .unwrap();
-    let key: [u8; 32] = [0; 32];
-    std::fs::create_dir_all(root.path()).unwrap();
-    println!("{}", root.path().to_str().unwrap());
-    let store = LmdbStore::open(root.path(), key);
-
-    let mut server = BrokerServer::new(store);
-
-    let (priv_key, pub_key) = generate_keypair();
-
-    let mut cnx = server.local_connection(pub_key);
-
+async fn test(cnx: &mut impl BrokerConnection, priv_key: PrivKey) {
     cnx.add_user(PubKey::Ed25519PubKey([1; 32]), priv_key)
         .await
-        .expect("local add_user failed");
+        .expect("add_user 1 failed");
+
+    cnx.add_user(PubKey::Ed25519PubKey([2; 32]), priv_key)
+        .await
+        .expect("add_user 2 failed");
 
     let repo = RepoLink::V0(RepoLinkV0 {
         id: PubKey::Ed25519PubKey([1; 32]),
         secret: SymKey::ChaCha20Key([0; 32]),
         peers: vec![],
     });
-
     let mut public_overlay_cnx = cnx
         .overlay_connect(&repo, true)
         .await
@@ -94,7 +80,7 @@ async fn test_local_connection() {
     let mut my_object_stream = public_overlay_cnx
         .get_block(object_id, true, None)
         .await
-        .expect("get_object failed");
+        .expect("get_block for object failed");
 
     while let Some(b) = my_object_stream.next().await {
         debug_println!("GOT BLOCK {}", b.id());
@@ -106,6 +92,34 @@ async fn test_local_connection() {
         .expect("get_object failed");
 
     debug_println!("GOT OBJECT with ID {}", object.id());
+
+    // let object_id = public_overlay_cnx
+    //     .copy_object(object_id, Some(now_timestamp() + 60))
+    //     .await
+    //     .expect("copy_object failed");
+
+    // debug_println!("COPIED OBJECT to OBJECT ID {}", object_id);
+}
+
+async fn test_local_connection() {
+    debug_println!("===== TESTING LOCAL API =====");
+
+    let root = tempfile::Builder::new()
+        .prefix("node-daemon")
+        .tempdir()
+        .unwrap();
+    let key: [u8; 32] = [0; 32];
+    std::fs::create_dir_all(root.path()).unwrap();
+    println!("{}", root.path().to_str().unwrap());
+    let store = LmdbStore::open(root.path(), key);
+
+    let mut server = BrokerServer::new(store);
+
+    let (priv_key, pub_key) = generate_keypair();
+
+    let mut cnx = server.local_connection(pub_key);
+
+    test(&mut cnx, priv_key).await;
 }
 
 #[xactor::main]
@@ -144,78 +158,7 @@ async fn main() -> std::io::Result<()> {
 
     match cnx_res {
         Ok(mut cnx) => {
-            cnx.add_user(PubKey::Ed25519PubKey([1; 32]), priv_key)
-                .await
-                .expect("add_user 1 failed");
-
-            cnx.add_user(PubKey::Ed25519PubKey([2; 32]), priv_key)
-                .await
-                .expect("add_user 2 failed");
-
-            let repo = RepoLink::V0(RepoLinkV0 {
-                id: PubKey::Ed25519PubKey([1; 32]),
-                secret: SymKey::ChaCha20Key([0; 32]),
-                peers: vec![],
-            });
-            let mut public_overlay_cnx = cnx
-                .overlay_connect(&repo, true)
-                .await
-                .expect("overlay_connect failed");
-
-            let my_block_id = public_overlay_cnx
-                .put_block(&Block::V0(BlockV0 {
-                    children: vec![],
-                    deps: ObjectDeps::ObjectIdList(vec![]),
-                    expiry: None,
-                    content: vec![27; 150],
-                }))
-                .await
-                .expect("put_block failed");
-
-            debug_println!("added block_id to store {}", my_block_id);
-
-            let object_id = public_overlay_cnx
-                .put_object(
-                    ObjectContent::File(File::V0(FileV0 {
-                        content_type: vec![],
-                        metadata: vec![],
-                        content: vec![48; 69000],
-                    })),
-                    vec![],
-                    None,
-                    block_size(),
-                    repo.id(),
-                    repo.secret(),
-                )
-                .await
-                .expect("put_object failed");
-
-            debug_println!("added object_id to store {}", object_id);
-
-            let mut my_block_stream = public_overlay_cnx
-                .get_block(my_block_id, true, None)
-                .await
-                .expect("get_block failed");
-
-            while let Some(b) = my_block_stream.next().await {
-                debug_println!("GOT BLOCK {}", b.id());
-            }
-
-            let mut my_object_stream = public_overlay_cnx
-                .get_block(object_id, true, None)
-                .await
-                .expect("get_block for object failed");
-
-            while let Some(b) = my_object_stream.next().await {
-                debug_println!("GOT BLOCK {}", b.id());
-            }
-
-            let object = public_overlay_cnx
-                .get_object(object_id, None)
-                .await
-                .expect("get_object failed");
-
-            debug_println!("GOT OBJECT with ID {}", object.id());
+            test(&mut cnx, priv_key).await;
         }
         Err(e) => {
             debug_println!("cannot connect {:?}", e);

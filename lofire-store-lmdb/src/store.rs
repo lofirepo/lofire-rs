@@ -112,6 +112,10 @@ impl Store for LmdbStore {
         self._del(block_id)
     }
 
+    fn copy(&mut self, id: ObjectId, expiry: Option<Timestamp>) -> Result<ObjectId, StoreGetError> {
+        self._copy(id, expiry)
+    }
+
     /// Load an account from the store.
     fn get_account(&self, id: &PubKey) -> Result<Vec<u8>, StoreGetError> {
         todo!()
@@ -272,16 +276,29 @@ impl LmdbStore {
         Ok((block, slice.len()))
     }
 
+    pub fn _copy(&self, id: BlockId, expiry: Option<Timestamp>) -> Result<BlockId, StoreGetError> {
+        //FIXME: there is no restriction for now on the new timestamp, we said it should be only decreased, not increased.
+        let mut obj = self.get(&id)?;
+        if obj.expiry() == expiry {
+            return Err(StoreGetError::InvalidValue);
+        }
+        obj.change_expiry(expiry);
+        self._put(&obj).map_err(|e| StoreGetError::BackendError)
+    }
+
+    //FIXME: use BlockId, not ObjectId. this is a block level operation
     /// Pins the object
     pub fn pin(&self, object_id: &ObjectId) -> Result<(), Error> {
         self.set_pin(object_id, true)
     }
 
+    //FIXME: use BlockId, not ObjectId. this is a block level operation
     /// Unpins the object
     pub fn unpin(&self, object_id: &ObjectId) -> Result<(), Error> {
         self.set_pin(object_id, false)
     }
 
+    //FIXME: use BlockId, not ObjectId. this is a block level operation
     /// Sets the pin for that Object. if add is true, will add the pin. if false, will remove the pin.
     /// A pin on an object prevents it from being removed when the store is making some disk space by using the LRU.
     /// A pin does not override the expiry. If expiry is set and is reached, the obejct will be deleted, no matter what.
@@ -347,6 +364,7 @@ impl LmdbStore {
         Ok(())
     }
 
+    //FIXME: use BlockId, not ObjectId. this is a block level operation
     /// the broker calls this method when the block has been retrieved/synced by enough peers and it
     /// can now be included in the LRU for potential garbage collection.
     /// If this method has not been called on a block, it will be kept in the store and will not enter LRU.

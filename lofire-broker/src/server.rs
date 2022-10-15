@@ -375,6 +375,16 @@ impl BrokerServer {
         Err(ProtocolError::OverlayNotJoined)
     }
 
+    pub fn object_copy(
+        &self,
+        overlay: Digest,
+        id: ObjectId,
+        expiry: Option<Timestamp>,
+    ) -> Result<ObjectId, ProtocolError> {
+        //Ok(Object::copy(id, expiry, self.store)?)
+        todo!();
+    }
+
     pub fn block_put(&self, overlay: Digest, block: &Block) -> Result<(), ProtocolError> {
         // TODO put in the right store. there must be one store by repo (find the repo by the overlayId)
         let _ = self.store._put(block)?;

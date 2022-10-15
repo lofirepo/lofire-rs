@@ -247,6 +247,27 @@ impl Object {
         }
     }
 
+    pub fn copy(
+        id: ObjectId,
+        expiry: Option<Timestamp>,
+        store: &mut impl Store,
+    ) -> Result<ObjectId, StoreGetError> {
+        // getting the old object from store
+        let old = Self::from_store(id, None, store).map_err(|e| StoreGetError::NotFound)?;
+
+        // FIXME: by the way, do we have a way to check that the passed ObjectId is really an object, and not any BlockId ?
+
+        // do your magic, calling for each leaf node :
+        //store.copy(block_id, expiry)
+        // becareful with the branch nodes that need to be recomputed.
+
+        // new_object.store()
+
+        // return the new ObjectId
+
+        todo!();
+    }
+
     /// Load an Object
     ///
     /// Returns Ok(Object) or an Err(Vec<ObjectId>) of missing BlockIds

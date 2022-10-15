@@ -189,6 +189,40 @@ where
         }
     }
 
+    pub async fn pin_object(&mut self, id: ObjectId) -> Result<(), ProtocolError> {
+        self.broker
+            .process_overlay_request(
+                self.overlay,
+                BrokerOverlayRequestContentV0::ObjectPin(ObjectPin::V0(ObjectPinV0 { id })),
+            )
+            .await
+    }
+
+    pub async fn unpin_object(&mut self, id: ObjectId) -> Result<(), ProtocolError> {
+        self.broker
+            .process_overlay_request(
+                self.overlay,
+                BrokerOverlayRequestContentV0::ObjectUnpin(ObjectUnpin::V0(ObjectUnpinV0 { id })),
+            )
+            .await
+    }
+
+    pub async fn copy_object(
+        &mut self,
+        id: ObjectId,
+        expiry: Option<Timestamp>,
+    ) -> Result<ObjectId, ProtocolError> {
+        self.broker
+            .process_overlay_request_objectid_response(
+                self.overlay,
+                BrokerOverlayRequestContentV0::ObjectCopy(ObjectCopy::V0(ObjectCopyV0 {
+                    id,
+                    expiry,
+                })),
+            )
+            .await
+    }
+
     pub async fn get_block(
         &mut self,
         id: BlockId,
@@ -311,6 +345,7 @@ pub trait BrokerConnection {
         public: bool,
     ) -> Result<OverlayConnectionClient<Self::OC>, ProtocolError>;
 
+    // TODO: remove those 3 functions from trait. they are used internally only. should not be exposed to end-user
     async fn process_overlay_request(
         &mut self,
         overlay: OverlayId,
@@ -322,6 +357,12 @@ pub trait BrokerConnection {
         overlay: OverlayId,
         request: BrokerOverlayRequestContentV0,
     ) -> Result<Pin<Box<Self::BlockStream>>, ProtocolError>;
+
+    async fn process_overlay_request_objectid_response(
+        &mut self,
+        overlay: OverlayId,
+        request: BrokerOverlayRequestContentV0,
+    ) -> Result<ObjectId, ProtocolError>;
 }
 
 pub struct BrokerConnectionLocal<'a> {
@@ -358,6 +399,19 @@ impl<'a> BrokerConnection for BrokerConnectionLocal<'a> {
                 self.broker.overlay_join(overlay, j.secret(), j.peers())
             }
             BrokerOverlayRequestContentV0::BlockPut(b) => self.broker.block_put(overlay, b.block()),
+            _ => Err(ProtocolError::InvalidState),
+        }
+    }
+
+    async fn process_overlay_request_objectid_response(
+        &mut self,
+        overlay: OverlayId,
+        request: BrokerOverlayRequestContentV0,
+    ) -> Result<ObjectId, ProtocolError> {
+        match request {
+            BrokerOverlayRequestContentV0::ObjectCopy(oc) => {
+                self.broker.object_copy(overlay, oc.id(), oc.expiry())
+            }
             _ => Err(ProtocolError::InvalidState),
         }
     }
@@ -564,6 +618,35 @@ where
                 Ok(Box::pin(receiver))
             }
         }
+    }
+
+    async fn process_overlay_request_objectid_response(
+        &mut self,
+        overlay: OverlayId,
+        request: BrokerOverlayRequestContentV0,
+    ) -> Result<ObjectId, ProtocolError> {
+        before!(self, request_id, addr, receiver);
+
+        self.writer
+            .send(BrokerMessage::V0(BrokerMessageV0 {
+                padding: vec![], // FIXME implement padding
+                content: BrokerMessageContentV0::BrokerOverlayMessage(BrokerOverlayMessage::V0(
+                    BrokerOverlayMessageV0 {
+                        overlay,
+                        content: BrokerOverlayMessageContentV0::BrokerOverlayRequest(
+                            BrokerOverlayRequest::V0(BrokerOverlayRequestV0 {
+                                id: request_id,
+                                content: request,
+                            }),
+                        ),
+                    },
+                )),
+            }))
+            .await
+            .map_err(|_e| ProtocolError::CannotSend)?;
+
+        after!(self, request_id, addr, receiver, reply);
+        reply.into()
     }
 
     async fn process_overlay_request(

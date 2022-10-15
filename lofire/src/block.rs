@@ -48,4 +48,10 @@ impl Block {
             Block::V0(o) => o.expiry,
         }
     }
+
+    pub fn change_expiry(&mut self, expiry: Option<Timestamp>) {
+        match self {
+            Block::V0(o) => o.expiry = expiry,
+        }
+    }
 }

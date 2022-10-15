@@ -1,6 +1,7 @@
 use crate::types::BrokerMessage;
 use core::fmt;
 use lofire::types::Block;
+use lofire::types::ObjectId;
 use num_enum::IntoPrimitive;
 use num_enum::TryFromPrimitive;
 use std::convert::From;
@@ -24,6 +25,7 @@ pub enum ProtocolError {
     EndOfStream,
     StoreError,
     MissingBlocks,
+    InvalidValue,
 }
 
 impl ProtocolError {
@@ -53,6 +55,7 @@ impl From<lofire::store::StoreGetError> for ProtocolError {
     fn from(e: lofire::store::StoreGetError) -> Self {
         match e {
             lofire::store::StoreGetError::NotFound => ProtocolError::NotFound,
+            lofire::store::StoreGetError::InvalidValue => ProtocolError::InvalidValue,
             _ => ProtocolError::StoreError,
         }
     }
@@ -88,6 +91,18 @@ impl From<BrokerMessage> for Result<(), ProtocolError> {
         }
         match msg.result() {
             0 => Ok(()),
+            err => Err(ProtocolError::try_from(err).unwrap()),
+        }
+    }
+}
+
+impl From<BrokerMessage> for Result<ObjectId, ProtocolError> {
+    fn from(msg: BrokerMessage) -> Self {
+        if !msg.is_response() {
+            panic!("BrokerMessage is not a response");
+        }
+        match msg.result() {
+            0 => Ok(msg.response_object_id()),
             err => Err(ProtocolError::try_from(err).unwrap()),
         }
     }

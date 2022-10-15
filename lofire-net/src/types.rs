@@ -895,7 +895,7 @@ pub struct ObjectPinV0 {
 /// Request to pin an object
 #[derive(Clone, Copy, Debug, Serialize, Deserialize)]
 pub enum ObjectPin {
-    ObjectPinV0,
+    V0(ObjectPinV0),
 }
 
 /// Request to unpin an object
@@ -924,6 +924,19 @@ pub struct ObjectCopyV0 {
 #[derive(Clone, Copy, Debug, Serialize, Deserialize)]
 pub enum ObjectCopy {
     V0(ObjectCopyV0),
+}
+
+impl ObjectCopy {
+    pub fn id(&self) -> ObjectId {
+        match self {
+            ObjectCopy::V0(o) => o.id,
+        }
+    }
+    pub fn expiry(&self) -> Option<Timestamp> {
+        match self {
+            ObjectCopy::V0(o) => o.expiry,
+        }
+    }
 }
 
 /// Request to delete an object
@@ -1046,6 +1059,7 @@ impl BrokerOverlayRequest {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub enum BrokerOverlayResponseContentV0 {
     Block(Block),
+    ObjectId(ObjectId),
 }
 
 /// Response to a `BrokerOverlayRequest`
@@ -1083,8 +1097,20 @@ impl BrokerOverlayResponse {
             BrokerOverlayResponse::V0(o) => match &o.content {
                 Some(contentv0) => match contentv0 {
                     BrokerOverlayResponseContentV0::Block(b) => Some(b),
+                    _ => panic!("this not a block reponse"),
                 },
                 None => None,
+            },
+        }
+    }
+    pub fn object_id(&self) -> ObjectId {
+        match self {
+            BrokerOverlayResponse::V0(o) => match &o.content {
+                Some(contentv0) => match contentv0 {
+                    BrokerOverlayResponseContentV0::ObjectId(id) => id.clone(),
+                    _ => panic!("this not an objectId reponse"),
+                },
+                None => panic!("this not an objectId reponse (doesnt have content)"),
             },
         }
     }
@@ -1182,6 +1208,19 @@ impl BrokerOverlayMessage {
             },
         }
     }
+    pub fn object_id<'a>(&self) -> ObjectId {
+        match self {
+            BrokerOverlayMessage::V0(o) => match &o.content {
+                BrokerOverlayMessageContentV0::BrokerOverlayResponse(r) => r.object_id(),
+                BrokerOverlayMessageContentV0::BrokerOverlayRequest(r) => {
+                    panic!("it is not a response");
+                }
+                BrokerOverlayMessageContentV0::Event(_) => {
+                    panic!("it is not a response");
+                }
+            },
+        }
+    }
 }
 
 /// Content of BrokerMessageV0
@@ -1269,6 +1308,20 @@ impl BrokerMessage {
                 BrokerMessageContentV0::BrokerOverlayMessage(p) => p.block(),
                 BrokerMessageContentV0::BrokerResponse(r) => {
                     panic!("it doesn't have a response block. it is not an overlay response");
+                }
+                BrokerMessageContentV0::BrokerRequest(_) => {
+                    panic!("it is not a response");
+                }
+            },
+        }
+    }
+
+    pub fn response_object_id(&self) -> ObjectId {
+        match self {
+            BrokerMessage::V0(o) => match &o.content {
+                BrokerMessageContentV0::BrokerOverlayMessage(p) => p.object_id(),
+                BrokerMessageContentV0::BrokerResponse(r) => {
+                    panic!("it doesn't have a response ObjectId. it is not an overlay response");
                 }
                 BrokerMessageContentV0::BrokerRequest(_) => {
                     panic!("it is not a response");
