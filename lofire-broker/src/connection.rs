@@ -7,8 +7,8 @@ use futures::{
     task::{Context, Poll},
     Future,
 };
-use std::fmt::Debug;
 use std::pin::Pin;
+use std::{collections::HashSet, fmt::Debug};
 
 use crate::server::BrokerServer;
 use async_broadcast::{broadcast, Receiver};
@@ -250,8 +250,13 @@ where
             repo_secret,
         );
         debug_println!("object has {} blocks", obj.blocks().len());
+        let mut deduplicated: HashSet<ObjectId> = HashSet::new();
         for block in obj.blocks() {
-            let _ = self.put_block(block).await?;
+            let id = block.id();
+            if deduplicated.get(&id).is_none() {
+                let _ = self.put_block(block).await?;
+                deduplicated.insert(id);
+            }
         }
         Ok(obj.id())
     }

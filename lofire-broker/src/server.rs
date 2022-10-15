@@ -1,5 +1,6 @@
 //! A Broker server
 
+use std::collections::HashSet;
 use std::sync::Arc;
 
 use crate::auth::*;
@@ -391,7 +392,7 @@ impl BrokerServer {
         if !include_children {
             let block = self.store.get(&id)?;
             s.send_blocking(block)
-                .map_err(|e| ProtocolError::CannotSend)?;
+                .map_err(|_e| ProtocolError::CannotSend)?;
             Ok(r)
         } else {
             let obj = Object::from_store(id, None, &self.store);
@@ -403,8 +404,14 @@ impl BrokerServer {
             // todo, use a task to send non blocking (streaming)
             let o = obj.ok().unwrap();
             debug_println!("{} BLOCKS ", o.blocks().len());
+            let mut deduplicated: HashSet<ObjectId> = HashSet::new();
             for block in o.blocks() {
-                s.send_blocking(block.clone());
+                let id = block.id();
+                if deduplicated.get(&id).is_none() {
+                    s.send_blocking(block.clone())
+                        .map_err(|_e| ProtocolError::CannotSend)?;
+                    deduplicated.insert(id);
+                }
             }
             Ok(r)
         }
