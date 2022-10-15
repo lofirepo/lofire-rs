@@ -210,12 +210,11 @@ pub struct EventContentV0 {
     /// Pub/sub topic
     pub topic: TopicId,
 
-    /// Publisher pubkey hash
-    /// BLAKE3 keyed hash over branch member pubkey
-    /// - key: BLAKE3 derive_key ("LoFiRe Event publisher BLAKE3 key",
+    /// Publisher pubkey encrypted with ChaCha20:
+    /// - key: BLAKE3 derive_key ("LoFiRe Event Publisher ChaCha20 key",
     ///                           repo_pubkey + repo_secret +
     ///                           branch_pubkey + branch_secret)
-    pub publisher: Digest,
+    pub publisher: [u8; 32], // PubKey
 
     /// Commit sequence number of publisher
     pub seq: u32,
@@ -795,10 +794,6 @@ pub struct OverlayJoinV0 {
     /// Only set for local brokers.
     pub repo_pubkey: Option<PubKey>,
 
-    /// Secret for the repository.
-    /// Only set for local brokers.
-    pub repo_secret: Option<SymKey>,
-
     /// Peers to connect to
     pub peers: Vec<PeerAdvert>,
 }
@@ -826,6 +821,21 @@ impl OverlayJoin {
 #[derive(Clone, Copy, Debug, Serialize, Deserialize)]
 pub enum OverlayLeave {
     V0(),
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct OverlayStatusV0 {
+    /// Whether or not the broker has joined the overlay
+    pub joined: bool,
+
+    /// List of peers currently connected in the overlay
+    pub peers: Vec<PeerAdvert>,
+}
+
+/// Request to join an overlay
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub enum OverlayStatus {
+    V0(OverlayStatusV0),
 }
 
 /// Request a Block by ID
@@ -1033,7 +1043,7 @@ pub enum TopicDisconnect {
 /// Content of `BrokerOverlayRequestV0`
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub enum BrokerOverlayRequestContentV0 {
-    OverlayConnect(OverlayConnect),
+    OverlayStatus(OverlayStatus),
     OverlayJoin(OverlayJoin),
     OverlayLeave(OverlayLeave),
     TopicSub(TopicSub),
