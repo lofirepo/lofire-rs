@@ -204,6 +204,11 @@ impl LmdbStore {
 
         let lock = self.environment.read().unwrap();
         let mut writer = lock.write().unwrap();
+
+        // TODO: check if the block is already in store? if yes, don't put it again.
+        // I didnt do it yet because it is extra cost. surely a get on the store is lighter than a put
+        // but doing a get in additing to a put for every call, is probably even costlier. better to deal with that at the higher level
+
         self.main_store
             .put(
                 &mut writer,
@@ -229,7 +234,7 @@ impl LmdbStore {
     /// Removes the block from the storage backend.
     /// The removed block is returned, so it can be inspected.
     /// Also returned is the approximate size of of free space that was reclaimed.
-    fn _del(&self, block_id: &BlockId) -> Result<(Block, usize), StoreDelError> {
+    pub fn _del(&self, block_id: &BlockId) -> Result<(Block, usize), StoreDelError> {
         let lock = self.environment.read().unwrap();
         let mut writer = lock.write().unwrap();
         let block_id_ser = serde_bare::to_vec(&block_id).unwrap();
@@ -288,13 +293,13 @@ impl LmdbStore {
 
     //FIXME: use BlockId, not ObjectId. this is a block level operation
     /// Pins the object
-    pub fn pin(&self, object_id: &ObjectId) -> Result<(), Error> {
+    pub fn pin(&self, object_id: &ObjectId) -> Result<(), StorePutError> {
         self.set_pin(object_id, true)
     }
 
     //FIXME: use BlockId, not ObjectId. this is a block level operation
     /// Unpins the object
-    pub fn unpin(&self, object_id: &ObjectId) -> Result<(), Error> {
+    pub fn unpin(&self, object_id: &ObjectId) -> Result<(), StorePutError> {
         self.set_pin(object_id, false)
     }
 
@@ -302,7 +307,7 @@ impl LmdbStore {
     /// Sets the pin for that Object. if add is true, will add the pin. if false, will remove the pin.
     /// A pin on an object prevents it from being removed when the store is making some disk space by using the LRU.
     /// A pin does not override the expiry. If expiry is set and is reached, the obejct will be deleted, no matter what.
-    pub fn set_pin(&self, object_id: &ObjectId, add: bool) -> Result<(), Error> {
+    pub fn set_pin(&self, object_id: &ObjectId, add: bool) -> Result<(), StorePutError> {
         let lock = self.environment.read().unwrap();
         let mut writer = lock.write().unwrap();
         let obj_id_ser = serde_bare::to_vec(&object_id).unwrap();

@@ -189,6 +189,15 @@ where
         }
     }
 
+    pub async fn delete_object(&mut self, id: ObjectId) -> Result<(), ProtocolError> {
+        self.broker
+            .process_overlay_request(
+                self.overlay,
+                BrokerOverlayRequestContentV0::ObjectDel(ObjectDel::V0(ObjectDelV0 { id })),
+            )
+            .await
+    }
+
     pub async fn pin_object(&mut self, id: ObjectId) -> Result<(), ProtocolError> {
         self.broker
             .process_overlay_request(
@@ -398,6 +407,15 @@ impl<'a> BrokerConnection for BrokerConnectionLocal<'a> {
             BrokerOverlayRequestContentV0::OverlayJoin(j) => {
                 self.broker.overlay_join(overlay, j.secret(), j.peers())
             }
+            BrokerOverlayRequestContentV0::ObjectPin(op) => {
+                self.broker.pin_object(overlay, op.id())
+            }
+            BrokerOverlayRequestContentV0::ObjectUnpin(op) => {
+                self.broker.unpin_object(overlay, op.id())
+            }
+            BrokerOverlayRequestContentV0::ObjectDel(op) => {
+                self.broker.del_object(overlay, op.id())
+            }
             BrokerOverlayRequestContentV0::BlockPut(b) => self.broker.block_put(overlay, b.block()),
             _ => Err(ProtocolError::InvalidState),
         }
@@ -410,7 +428,7 @@ impl<'a> BrokerConnection for BrokerConnectionLocal<'a> {
     ) -> Result<ObjectId, ProtocolError> {
         match request {
             BrokerOverlayRequestContentV0::ObjectCopy(oc) => {
-                self.broker.object_copy(overlay, oc.id(), oc.expiry())
+                self.broker.copy_object(overlay, oc.id(), oc.expiry())
             }
             _ => Err(ProtocolError::InvalidState),
         }

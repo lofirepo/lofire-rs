@@ -898,6 +898,14 @@ pub enum ObjectPin {
     V0(ObjectPinV0),
 }
 
+impl ObjectPin {
+    pub fn id(&self) -> ObjectId {
+        match self {
+            ObjectPin::V0(o) => o.id,
+        }
+    }
+}
+
 /// Request to unpin an object
 #[derive(Clone, Copy, Debug, Serialize, Deserialize)]
 pub struct ObjectUnpinV0 {
@@ -908,6 +916,14 @@ pub struct ObjectUnpinV0 {
 #[derive(Clone, Copy, Debug, Serialize, Deserialize)]
 pub enum ObjectUnpin {
     V0(ObjectUnpinV0),
+}
+
+impl ObjectUnpin {
+    pub fn id(&self) -> ObjectId {
+        match self {
+            ObjectUnpin::V0(o) => o.id,
+        }
+    }
 }
 
 /// Request to copy an object with a different expiry time
@@ -949,6 +965,14 @@ pub struct ObjectDelV0 {
 #[derive(Clone, Copy, Debug, Serialize, Deserialize)]
 pub enum ObjectDel {
     V0(ObjectDelV0),
+}
+
+impl ObjectDel {
+    pub fn id(&self) -> ObjectId {
+        match self {
+            ObjectDel::V0(o) => o.id,
+        }
+    }
 }
 
 /// Request subscription to a `Topic`

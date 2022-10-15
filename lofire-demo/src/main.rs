@@ -99,6 +99,19 @@ async fn test(cnx: &mut impl BrokerConnection, priv_key: PrivKey) {
     //     .expect("copy_object failed");
 
     // debug_println!("COPIED OBJECT to OBJECT ID {}", object_id);
+
+    public_overlay_cnx
+        .delete_object(object_id)
+        .await
+        .expect("delete_object failed");
+
+    let res = public_overlay_cnx
+        .get_object(object_id, None)
+        .await
+        .unwrap_err();
+    debug_println!("result from get object after delete: {}", res);
+
+    //TODO test pin/unpin
 }
 
 async fn test_local_connection() {

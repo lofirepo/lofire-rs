@@ -50,11 +50,13 @@ pub enum StoreGetError {
     NotFound,
     InvalidValue,
     BackendError,
+    SerializationError,
 }
 
 #[derive(Debug)]
 pub enum StorePutError {
     BackendError,
+    SerializationError,
 }
 
 #[derive(Debug)]

@@ -27,6 +27,7 @@ const DATA_VARINT_EXTRA: usize = 4;
 /// Max extra space used by the deps list
 const MAX_DEPS_SIZE: usize = 8 * BLOCK_ID_SIZE;
 
+#[derive(Debug)]
 pub struct Object {
     /// ID of root block
     id: ObjectId,

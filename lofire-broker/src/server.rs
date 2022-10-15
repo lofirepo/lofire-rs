@@ -239,6 +239,15 @@ impl BrokerProtocolHandler {
                         BrokerOverlayRequestContentV0::OverlayJoin(j) => {
                             res = self.broker.overlay_join(overlay, j.secret(), j.peers())
                         }
+                        BrokerOverlayRequestContentV0::ObjectDel(op) => {
+                            res = self.broker.del_object(overlay, op.id())
+                        }
+                        BrokerOverlayRequestContentV0::ObjectPin(op) => {
+                            res = self.broker.pin_object(overlay, op.id())
+                        }
+                        BrokerOverlayRequestContentV0::ObjectUnpin(op) => {
+                            res = self.broker.unpin_object(overlay, op.id())
+                        }
                         BrokerOverlayRequestContentV0::BlockPut(b) => {
                             res = self.broker.block_put(overlay, b.block())
                         }
@@ -375,7 +384,64 @@ impl BrokerServer {
         Err(ProtocolError::OverlayNotJoined)
     }
 
-    pub fn object_copy(
+    pub fn del_object(&self, overlay: Digest, id: ObjectId) -> Result<(), ProtocolError> {
+        // TODO do it in the right store. there must be one store by repo (find the repo by the overlayId)
+        // TODO, only admin users can delete on a store on this broker
+        let obj = Object::from_store(id, None, &self.store);
+        if obj.is_err() {
+            return Err(ProtocolError::NotFound);
+        }
+        let o = obj.ok().unwrap();
+        let mut deduplicated: HashSet<ObjectId> = HashSet::new();
+        for block in o.blocks() {
+            let id = block.id();
+            if deduplicated.get(&id).is_none() {
+                self.store._del(&id)?;
+                deduplicated.insert(id);
+            }
+        }
+        Ok(())
+    }
+
+    pub fn pin_object(&self, overlay: Digest, id: ObjectId) -> Result<(), ProtocolError> {
+        // TODO do it in the right store. there must be one store by repo (find the repo by the overlayId)
+        // TODO, store the user who pins, and manage reference counting on how many users pin/unpin
+        let obj = Object::from_store(id, None, &self.store);
+        if obj.is_err() {
+            return Err(ProtocolError::NotFound);
+        }
+        let o = obj.ok().unwrap();
+        let mut deduplicated: HashSet<ObjectId> = HashSet::new();
+        for block in o.blocks() {
+            let id = block.id();
+            if deduplicated.get(&id).is_none() {
+                self.store.pin(&id)?;
+                deduplicated.insert(id);
+            }
+        }
+        Ok(())
+    }
+
+    pub fn unpin_object(&self, overlay: Digest, id: ObjectId) -> Result<(), ProtocolError> {
+        // TODO do it in the right store. there must be one store by repo (find the repo by the overlayId)
+        // TODO, store the user who pins, and manage reference counting on how many users pin/unpin
+        let obj = Object::from_store(id, None, &self.store);
+        if obj.is_err() {
+            return Err(ProtocolError::NotFound);
+        }
+        let o = obj.ok().unwrap();
+        let mut deduplicated: HashSet<ObjectId> = HashSet::new();
+        for block in o.blocks() {
+            let id = block.id();
+            if deduplicated.get(&id).is_none() {
+                self.store.unpin(&id)?;
+                deduplicated.insert(id);
+            }
+        }
+        Ok(())
+    }
+
+    pub fn copy_object(
         &self,
         overlay: Digest,
         id: ObjectId,
