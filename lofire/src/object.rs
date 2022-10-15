@@ -1,6 +1,6 @@
 //! Merkle hash tree of Objects
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use debug_print::*;
 
@@ -341,8 +341,13 @@ impl Object {
 
     /// Save blocks of the object in the store
     pub fn save(&self, store: &mut impl Store) -> Result<(), StorePutError> {
+        let mut deduplicated: HashSet<ObjectId> = HashSet::new();
         for block in &self.blocks {
-            store.put(block)?;
+            let id = block.id();
+            if deduplicated.get(&id).is_none() {
+                store.put(block)?;
+                deduplicated.insert(id);
+            }
         }
         Ok(())
     }
