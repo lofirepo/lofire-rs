@@ -3,6 +3,7 @@ use async_tungstenite::client_async;
 use async_tungstenite::tungstenite::{Error, Message};
 use debug_print::*;
 use futures::{future, pin_mut, stream, SinkExt, StreamExt};
+use lofire::store::{store_max_value_size, store_valid_value_size};
 use lofire_store_lmdb::store::LmdbStore;
 use std::thread;
 
@@ -12,6 +13,11 @@ use lofire_broker::connection::*;
 use lofire_broker::server::*;
 use lofire_net::errors::*;
 use lofire_net::types::*;
+
+fn block_size() -> usize {
+    store_max_value_size()
+    //store_valid_value_size(0)
+}
 
 async fn test_local_connection() {
     debug_println!("===== TESTING LOCAL API =====");
@@ -67,7 +73,7 @@ async fn test_local_connection() {
             })),
             vec![],
             None,
-            0,
+            block_size(),
             repo.id(),
             repo.secret(),
         )
@@ -177,7 +183,7 @@ async fn main() -> std::io::Result<()> {
                     })),
                     vec![],
                     None,
-                    0,
+                    block_size(),
                     repo.id(),
                     repo.secret(),
                 )

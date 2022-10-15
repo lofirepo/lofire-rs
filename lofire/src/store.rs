@@ -76,7 +76,7 @@ pub fn store_valid_value_size(size: usize) -> usize {
 }
 
 /// Returns the maximum value size for the entries of the storage backend.
-pub fn store_max_value_size() -> usize {
+pub const fn store_max_value_size() -> usize {
     MAX_FACTOR * PAGE_SIZE - HEADER
 }
 

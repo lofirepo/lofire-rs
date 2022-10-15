@@ -232,6 +232,8 @@ where
         Ok(block.id())
     }
 
+    // TODO maybe implement a put_block_with_children ? that would behave like put_object, but taking in a parent Blockk instead of a content
+
     pub async fn put_object(
         &mut self,
         content: ObjectContent,
