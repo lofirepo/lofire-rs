@@ -1,6 +1,5 @@
 //! Immutable Block
 
-use crate::store::*;
 use crate::types::*;
 
 impl BlockV0 {
@@ -34,15 +33,6 @@ impl Block {
         key: Option<SymKey>,
     ) -> Block {
         Block::V0(BlockV0::new(children, deps, expiry, content, key))
-    }
-
-    /// Copy the block with a different expiry
-    pub fn copy(
-        &self,
-        expiry: Option<Timestamp>,
-        store: &mut impl Store,
-    ) -> Result<BlockId, StoreGetError> {
-        store.copy(self.id(), expiry)
     }
 
     /// Compute the ID

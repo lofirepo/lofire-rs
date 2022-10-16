@@ -14,9 +14,6 @@ pub trait Store {
     /// Delete a block from the store.
     fn del(&mut self, id: &BlockId) -> Result<(Block, usize), StoreDelError>;
 
-    /// Copy an object with a different expiry time, or no expiry time.
-    fn copy(&mut self, id: ObjectId, expiry: Option<Timestamp>) -> Result<ObjectId, StoreGetError>;
-
     /// Load an account from the store.
     fn get_account(&self, id: &PubKey) -> Result<Vec<u8>, StoreGetError>;
 
@@ -122,10 +119,6 @@ impl Store for HashMapStore {
         let block = self.blocks.remove(id).ok_or(StoreDelError::NotFound)?;
         let size = size_of_val(&block);
         Ok((block, size))
-    }
-
-    fn copy(&mut self, id: ObjectId, expiry: Option<Timestamp>) -> Result<ObjectId, StoreGetError> {
-        todo!();
     }
 
     fn get_account(&self, id: &PubKey) -> Result<Vec<u8>, StoreGetError> {

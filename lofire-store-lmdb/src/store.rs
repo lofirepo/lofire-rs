@@ -112,10 +112,6 @@ impl Store for LmdbStore {
         self._del(block_id)
     }
 
-    fn copy(&mut self, id: ObjectId, expiry: Option<Timestamp>) -> Result<ObjectId, StoreGetError> {
-        self._copy(id, expiry)
-    }
-
     /// Load an account from the store.
     fn get_account(&self, id: &PubKey) -> Result<Vec<u8>, StoreGetError> {
         todo!()
@@ -279,16 +275,6 @@ impl LmdbStore {
 
         writer.commit().unwrap();
         Ok((block, slice.len()))
-    }
-
-    pub fn _copy(&self, id: BlockId, expiry: Option<Timestamp>) -> Result<BlockId, StoreGetError> {
-        //FIXME: there is no restriction for now on the new timestamp, we said it should be only decreased, not increased.
-        let mut block = self.get(&id)?;
-        if block.expiry() == expiry {
-            return Err(StoreGetError::InvalidValue);
-        }
-        block.set_expiry(expiry);
-        self._put(&block).map_err(|e| StoreGetError::BackendError)
     }
 
     //FIXME: use BlockId, not ObjectId. this is a block level operation
