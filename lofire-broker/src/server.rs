@@ -387,7 +387,7 @@ impl BrokerServer {
     pub fn del_object(&self, overlay: Digest, id: ObjectId) -> Result<(), ProtocolError> {
         // TODO do it in the right store. there must be one store by repo (find the repo by the overlayId)
         // TODO, only admin users can delete on a store on this broker
-        let obj = Object::from_store(id, None, &self.store);
+        let obj = Object::load(id, None, &self.store);
         if obj.is_err() {
             return Err(ProtocolError::NotFound);
         }
@@ -406,7 +406,7 @@ impl BrokerServer {
     pub fn pin_object(&self, overlay: Digest, id: ObjectId) -> Result<(), ProtocolError> {
         // TODO do it in the right store. there must be one store by repo (find the repo by the overlayId)
         // TODO, store the user who pins, and manage reference counting on how many users pin/unpin
-        let obj = Object::from_store(id, None, &self.store);
+        let obj = Object::load(id, None, &self.store);
         if obj.is_err() {
             return Err(ProtocolError::NotFound);
         }
@@ -425,7 +425,7 @@ impl BrokerServer {
     pub fn unpin_object(&self, overlay: Digest, id: ObjectId) -> Result<(), ProtocolError> {
         // TODO do it in the right store. there must be one store by repo (find the repo by the overlayId)
         // TODO, store the user who pins, and manage reference counting on how many users pin/unpin
-        let obj = Object::from_store(id, None, &self.store);
+        let obj = Object::load(id, None, &self.store);
         if obj.is_err() {
             return Err(ProtocolError::NotFound);
         }
@@ -471,7 +471,7 @@ impl BrokerServer {
                 .map_err(|_e| ProtocolError::CannotSend)?;
             Ok(r)
         } else {
-            let obj = Object::from_store(id, None, &self.store);
+            let obj = Object::load(id, None, &self.store);
             // TODO return partial blocks when some are missing ?
             if obj.is_err() {
                 //&& obj.err().unwrap().len() == 1 && obj.err().unwrap()[0] == id {

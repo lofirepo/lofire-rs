@@ -689,7 +689,7 @@ mod test {
             i += 1;
         }
 
-        store.remove_expired();
+        store.remove_expired().unwrap();
 
         assert!(store.get(block_ids.get(0).unwrap()).is_err());
         assert!(store.get(block_ids.get(1).unwrap()).is_err());
@@ -738,7 +738,7 @@ mod test {
             i += 1;
         }
 
-        store.remove_expired();
+        store.remove_expired().unwrap();
 
         assert!(store.get(block_ids.get(0).unwrap()).is_err());
         assert!(store.get(block_ids.get(1).unwrap()).is_err());
@@ -755,9 +755,8 @@ mod test {
         let key: [u8; 32] = [0; 32];
         fs::create_dir_all(root.path()).unwrap();
         println!("{}", root.path().to_str().unwrap());
-        let mut store = LmdbStore::open(root.path(), key);
-
-        store.remove_expired();
+        let store = LmdbStore::open(root.path(), key);
+        store.remove_expired().unwrap();
     }
 
     #[test]
@@ -781,6 +780,7 @@ mod test {
         );
 
         let block_id = store.put(&block).unwrap();
+        assert_eq!(block_id, block.id());
 
         println!("ObjectId: {:?}", block_id);
         assert_eq!(
@@ -794,7 +794,7 @@ mod test {
         let block_res = store.get(&block_id).unwrap();
 
         println!("Block: {:?}", block_res);
-        assert_eq!(block_res, block);
+        assert_eq!(block_res.id(), block.id());
     }
 
     #[test]
@@ -820,7 +820,7 @@ mod test {
 
             println!("LMDB Version: {}", env.version());
 
-            let mut store = env.open_single("testdb", StoreOptions::create()).unwrap();
+            let store = env.open_single("testdb", StoreOptions::create()).unwrap();
 
             {
                 // Use a write transaction to mutate the store via a `Writer`. There can be only

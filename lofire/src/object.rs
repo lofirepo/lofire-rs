@@ -29,19 +29,18 @@ const MAX_DEPS_SIZE: usize = 8 * BLOCK_ID_SIZE;
 
 #[derive(Debug)]
 pub struct Object {
-    /// ID of root block
-    id: ObjectId,
-
-    /// Key for root block
-    key: Option<SymKey>,
-
     /// Blocks of the Object (nodes of the tree)
     blocks: Vec<Block>,
+
+    /// Dependencies
+    deps: Vec<ObjectId>,
 }
 
 /// Object parsing errors
 #[derive(Debug)]
 pub enum ObjectParseError {
+    /// Missing blocks
+    MissingBlocks(Vec<BlockId>),
     /// Missing root key
     MissingRootKey,
     /// Invalid BlockId encountered in the tree
@@ -50,6 +49,8 @@ pub enum ObjectParseError {
     InvalidChildren,
     /// Number of keys does not match number of children of a block
     InvalidKeys,
+    /// Invalid DepList object content
+    InvalidDeps,
     /// Error deserializing content of a block
     BlockDeserializeError,
     /// Error deserializing content of the object
@@ -115,8 +116,8 @@ impl Object {
                 repo_secret,
             );
             let dep_ref = ObjectRef {
-                id: dep_obj.id,
-                key: dep_obj.key.unwrap(),
+                id: dep_obj.id(),
+                key: dep_obj.key().unwrap(),
             };
             deps = ObjectDeps::DepListRef(dep_ref);
         }
@@ -127,7 +128,7 @@ impl Object {
     fn make_tree(
         leaves: &[Block],
         conv_key: &ChaCha20Key,
-        root_deps: ObjectDeps,
+        root_deps: &ObjectDeps,
         expiry: Option<Timestamp>,
         arity: usize,
     ) -> Vec<Block> {
@@ -156,13 +157,8 @@ impl Object {
         //debug_println!("parents += {}", parents.len());
 
         if 1 < parents.len() {
-            let mut great_parents = Self::make_tree(
-                parents.as_slice(),
-                conv_key,
-                root_deps.clone(),
-                expiry,
-                arity,
-            );
+            let mut great_parents =
+                Self::make_tree(parents.as_slice(), conv_key, root_deps, expiry, arity);
             parents.append(&mut great_parents);
         }
         parents
@@ -230,23 +226,14 @@ impl Object {
             let arity: usize =
                 (valid_block_size - EMPTY_BLOCK_SIZE - BIG_VARINT_EXTRA * 2 - MAX_DEPS_SIZE)
                     / (BLOCK_ID_SIZE + BLOCK_KEY_SIZE);
-            let mut parents = Self::make_tree(
-                blocks.as_slice(),
-                &conv_key,
-                obj_deps.clone(),
-                expiry,
-                arity,
-            );
+            let mut parents =
+                Self::make_tree(blocks.as_slice(), &conv_key, &obj_deps, expiry, arity);
             blocks.append(&mut parents);
         }
         // root node
         let root = blocks.last().unwrap();
 
-        Object {
-            id: root.id(),
-            key: root.key(),
-            blocks,
-        }
+        Object { blocks, deps }
     }
 
     pub fn copy(
@@ -277,38 +264,35 @@ impl Object {
         let mut parents = Self::make_tree(
             blocks.as_slice(),
             &conv_key,
-            self.deps().clone(),
+            self.root().deps(),
             expiry,
             arity,
         );
         blocks.append(&mut parents);
 
-        let root = blocks.last().unwrap();
         Ok(Object {
-            id: root.id(),
-            key: root.key(),
             blocks,
+            deps: self.deps().clone(),
         })
     }
 
-    /// Load an Object
+    /// Load an Object from Store
     ///
     /// Returns Ok(Object) or an Err(Vec<ObjectId>) of missing BlockIds
-    fn load<F>(id: ObjectId, key: Option<SymKey>, get_block: F) -> Result<Object, Vec<BlockId>>
-    where
-        F: Fn(&BlockId) -> Result<Block, ()>,
-    {
-        fn load_tree<F>(
+    pub fn load(
+        id: ObjectId,
+        key: Option<SymKey>,
+        store: &impl Store,
+    ) -> Result<Object, ObjectParseError> {
+        fn load_tree(
             parents: Vec<BlockId>,
-            get_block: F,
+            store: &impl Store,
             blocks: &mut Vec<Block>,
             missing: &mut Vec<BlockId>,
-        ) where
-            F: Fn(&BlockId) -> Result<Block, ()>,
-        {
+        ) {
             let mut children: Vec<BlockId> = vec![];
             for id in parents {
-                match get_block(&id) {
+                match store.get(&id) {
                     Ok(block) => {
                         blocks.insert(0, block.clone());
                         match block {
@@ -321,49 +305,37 @@ impl Object {
                 }
             }
             if !children.is_empty() {
-                load_tree(children, get_block, blocks, missing);
+                load_tree(children, store, blocks, missing);
             }
         }
 
         let mut blocks: Vec<Block> = vec![];
         let mut missing: Vec<BlockId> = vec![];
 
-        load_tree(vec![id], get_block, &mut blocks, &mut missing);
+        load_tree(vec![id], store, &mut blocks, &mut missing);
 
-        if missing.is_empty() {
-            let root = blocks.last_mut().unwrap();
-            if key.is_some() {
-                root.set_key(key.unwrap());
-            }
-            Ok(Object { id, key, blocks })
-        } else {
-            Err(missing)
+        if !missing.is_empty() {
+            return Err(ObjectParseError::MissingBlocks(missing));
         }
-    }
 
-    /// Load an Object from HashMap
-    ///
-    /// Returns Ok(Object) or an Err(Vec<ObjectId>) of missing BlockIds
-    pub fn from_hashmap(
-        id: ObjectId,
-        key: Option<SymKey>,
-        blocks: &HashMap<BlockId, Block>,
-    ) -> Result<Object, Vec<BlockId>> {
-        Self::load(id, key, |id: &BlockId| match blocks.get(id) {
-            Some(block) => Ok(block.clone()),
-            None => Err(()),
-        })
-    }
+        let root = blocks.last_mut().unwrap();
+        if key.is_some() {
+            root.set_key(key.unwrap());
+        }
 
-    /// Load an Object from Store
-    ///
-    /// Returns Ok(Object) or an Err(Vec<ObjectId>) of missing BlockIds
-    pub fn from_store(
-        id: ObjectId,
-        key: Option<SymKey>,
-        store: &impl Store,
-    ) -> Result<Object, Vec<BlockId>> {
-        Self::load(id, key, |id: &BlockId| store.get(id).or(Err(())))
+        let deps: Vec<ObjectId> = match root.deps().clone() {
+            ObjectDeps::ObjectIdList(deps_vec) => deps_vec,
+            ObjectDeps::DepListRef(deps_ref) => {
+                let obj = Object::load(deps_ref.id, Some(deps_ref.key), store)?;
+                let content = obj.content()?;
+                match content {
+                    ObjectContent::DepList(DepList::V0(deps_vec)) => deps_vec,
+                    _ => return Err(ObjectParseError::InvalidDeps),
+                }
+            }
+        };
+
+        Ok(Object { blocks, deps })
     }
 
     /// Save blocks of the object in the store
@@ -381,20 +353,20 @@ impl Object {
 
     /// Get the ID of the Object
     pub fn id(&self) -> ObjectId {
-        self.id
+        self.blocks.last().unwrap().id()
     }
 
     /// Get the key for the Object
     pub fn key(&self) -> Option<SymKey> {
-        self.key
+        self.blocks.last().unwrap().key()
     }
 
     /// Get an `ObjectRef` for the root object
     pub fn reference(&self) -> Option<ObjectRef> {
-        if self.key.is_some() {
+        if self.key().is_some() {
             Some(ObjectRef {
-                id: self.id,
-                key: self.key.unwrap(),
+                id: self.id(),
+                key: self.key().unwrap(),
             })
         } else {
             None
@@ -409,8 +381,8 @@ impl Object {
         self.blocks.last().unwrap().expiry()
     }
 
-    pub fn deps(&self) -> &ObjectDeps {
-        &self.blocks.last().unwrap().deps()
+    pub fn deps(&self) -> &Vec<ObjectId> {
+        &self.deps
     }
 
     pub fn blocks(&self) -> &Vec<Block> {
@@ -530,7 +502,7 @@ impl Object {
     /// Parse the Object and return the leaf Blocks with decryption key set
     pub fn leaves(&self) -> Result<Vec<Block>, ObjectParseError> {
         let mut leaves: Vec<Block> = vec![];
-        let parents = vec![(self.id, self.key.unwrap())];
+        let parents = vec![(self.id(), self.key().unwrap())];
         match Self::collect_leaves(
             &self.blocks,
             &parents,
@@ -545,11 +517,11 @@ impl Object {
 
     /// Parse the Object and return the decrypted content assembled from Blocks
     pub fn content(&self) -> Result<ObjectContent, ObjectParseError> {
-        if self.key.is_none() {
+        if self.key().is_none() {
             return Err(ObjectParseError::MissingRootKey);
         }
         let mut obj_content: Vec<u8> = vec![];
-        let parents = vec![(self.id, self.key.unwrap())];
+        let parents = vec![(self.id(), self.key().unwrap())];
         match Self::collect_leaves(
             &self.blocks,
             &parents,
@@ -634,7 +606,7 @@ mod test {
 
         object.save(&mut store).expect("Object save error");
 
-        let object2 = Object::from_store(object.id(), object.key(), &store).unwrap();
+        let object2 = Object::load(object.id(), object.key(), &store).unwrap();
 
         println!("nodes2.len: {:?}", object2.blocks().len());
         //println!("nodes2: {:?}", tree2.nodes());
@@ -651,20 +623,11 @@ mod test {
             Err(e) => panic!("Object2 parse error: {:?}", e),
         }
 
-        let map = object.to_hashmap();
-        let object3 = Object::from_hashmap(object.id(), object.key(), &map).unwrap();
+        let expiry3 = Some(2342);
+        let object3 = object.copy(expiry3, repo_pubkey, repo_secret).unwrap();
+        object3.save(&mut store).unwrap();
+        assert_eq!(object3.expiry(), expiry3);
         match object3.content() {
-            Ok(cnt) => {
-                assert_eq!(content, cnt);
-            }
-            Err(e) => panic!("Object3 parse error: {:?}", e),
-        }
-
-        let exp = Some(2342);
-        let object4 = object.copy(exp, repo_pubkey, repo_secret).unwrap();
-        object4.save(&mut store).unwrap();
-        assert_eq!(object4.expiry(), exp);
-        match object4.content() {
             Ok(cnt) => {
                 assert_eq!(content, cnt);
             }

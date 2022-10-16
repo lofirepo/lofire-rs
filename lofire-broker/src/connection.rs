@@ -16,6 +16,7 @@ use async_oneshot::oneshot;
 use debug_print::*;
 use futures::{pin_mut, stream, Sink, SinkExt, StreamExt};
 use lofire::object::*;
+use lofire::store::*;
 use lofire::types::*;
 use lofire::utils::*;
 use lofire_net::errors::*;
@@ -256,22 +257,23 @@ where
         topic: Option<PubKey>,
     ) -> Result<Object, ProtocolError> {
         let mut blockstream = self.get_block(id, true, topic).await?;
-        let mut map: HashMap<BlockId, Block> = HashMap::new();
-        while let Some(b) = blockstream.next().await {
-            map.insert(b.id(), b);
+        let mut store = HashMapStore::new();
+        while let Some(block) = blockstream.next().await {
+            store.put(&block).unwrap();
         }
-        Object::from_hashmap(id, None, &map).map_err(|e| ProtocolError::MissingBlocks)
+        Object::load(id, None, &store).map_err(|e| match e {
+            ObjectParseError::MissingBlocks(_missing) => ProtocolError::MissingBlocks,
+            _ => ProtocolError::ObjectParseError,
+        })
     }
 
     pub async fn put_block(&mut self, block: &Block) -> Result<BlockId, ProtocolError> {
-        let res = self
-            .broker
+        self.broker
             .process_overlay_request(
                 self.overlay,
                 BrokerOverlayRequestContentV0::BlockPut(BlockPut::V0(block.clone())),
             )
             .await?;
-        //compute the ObjectId and return it
         Ok(block.id())
     }
 
