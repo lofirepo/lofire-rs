@@ -102,9 +102,8 @@ impl Object {
         repo_pubkey: PubKey,
         repo_secret: SymKey,
     ) -> ObjectDeps {
-        let deps: ObjectDeps;
         if deps_vec.len() <= 8 {
-            deps = ObjectDeps::ObjectIdList(deps_vec);
+            ObjectDeps::ObjectIdList(deps_vec)
         } else {
             let dep_list = DepList::V0(deps_vec);
             let dep_obj = Object::new(
@@ -119,9 +118,8 @@ impl Object {
                 id: dep_obj.id(),
                 key: dep_obj.key().unwrap(),
             };
-            deps = ObjectDeps::DepListRef(dep_ref);
+            ObjectDeps::DepListRef(dep_ref)
         }
-        deps
     }
 
     /// Build tree from leaves, returns parent nodes
@@ -204,7 +202,7 @@ impl Object {
                 content_ser.as_slice(),
                 &conv_key,
                 vec![],
-                ObjectDeps::ObjectIdList(vec![]),
+                obj_deps,
                 expiry,
             ));
         } else {
@@ -230,8 +228,6 @@ impl Object {
                 Self::make_tree(blocks.as_slice(), &conv_key, &obj_deps, expiry, arity);
             blocks.append(&mut parents);
         }
-        // root node
-        let root = blocks.last().unwrap();
 
         Object { blocks, deps }
     }
@@ -320,15 +316,14 @@ impl Object {
 
         let root = blocks.last_mut().unwrap();
         if key.is_some() {
-            root.set_key(key.unwrap());
+            root.set_key(key);
         }
 
-        let deps: Vec<ObjectId> = match root.deps().clone() {
+        let deps = match root.deps().clone() {
             ObjectDeps::ObjectIdList(deps_vec) => deps_vec,
             ObjectDeps::DepListRef(deps_ref) => {
                 let obj = Object::load(deps_ref.id, Some(deps_ref.key), store)?;
-                let content = obj.content()?;
-                match content {
+                match obj.content()? {
                     ObjectContent::DepList(DepList::V0(deps_vec)) => deps_vec,
                     _ => return Err(ObjectParseError::InvalidDeps),
                 }
@@ -468,7 +463,7 @@ impl Object {
                         BlockContentV0::DataChunk(chunk) => {
                             if leaves.is_some() {
                                 let mut leaf = block.clone();
-                                leaf.set_key(*key);
+                                leaf.set_key(Some(*key));
                                 let l = &mut **leaves.as_mut().unwrap();
                                 l.push(leaf);
                             }
@@ -571,32 +566,35 @@ mod test {
         let content = ObjectContent::File(file);
 
         let deps: Vec<ObjectId> = vec![Digest::Blake3Digest32([9; 32])];
-        let expiry = Some(2u32.pow(31));
+        let exp = Some(2u32.pow(31));
         let max_object_size = 0;
 
         let repo_secret = SymKey::ChaCha20Key([0; 32]);
         let repo_pubkey = PubKey::Ed25519PubKey([1; 32]);
 
-        let object = Object::new(
+        let obj = Object::new(
             content.clone(),
-            deps,
-            expiry,
+            deps.clone(),
+            exp,
             max_object_size,
             repo_pubkey,
             repo_secret,
         );
 
-        println!("root_id: {:?}", object.id());
-        println!("root_key: {:?}", object.key().unwrap());
-        println!("nodes.len: {:?}", object.blocks().len());
-        //println!("nodes: {:?}", tree.nodes());
+        println!("obj.id: {:?}", obj.id());
+        println!("obj.key: {:?}", obj.key());
+        println!("obj.deps: {:?}", obj.deps());
+        println!("obj.blocks.len: {:?}", obj.blocks().len());
+
         let mut i = 0;
-        for node in object.blocks() {
+        for node in obj.blocks() {
             println!("#{}: {:?}", i, node.id());
             i += 1;
         }
 
-        match object.content() {
+        assert_eq!(*obj.deps(), deps);
+
+        match obj.content() {
             Ok(cnt) => {
                 assert_eq!(content, cnt);
             }
@@ -604,30 +602,58 @@ mod test {
         }
         let mut store = HashMapStore::new();
 
-        object.save(&mut store).expect("Object save error");
+        obj.save(&mut store).expect("Object save error");
 
-        let object2 = Object::load(object.id(), object.key(), &store).unwrap();
+        let obj2 = Object::load(obj.id(), obj.key(), &store).unwrap();
 
-        println!("nodes2.len: {:?}", object2.blocks().len());
-        //println!("nodes2: {:?}", tree2.nodes());
+        println!("obj2.id: {:?}", obj2.id());
+        println!("obj2.key: {:?}", obj2.key());
+        println!("obj2.deps: {:?}", obj2.deps());
+        println!("obj2.blocks.len: {:?}", obj2.blocks().len());
         let mut i = 0;
-        for node in object2.blocks() {
+        for node in obj2.blocks() {
             println!("#{}: {:?}", i, node.id());
             i += 1;
         }
 
-        match object2.content() {
+        assert_eq!(*obj2.deps(), deps);
+        assert_eq!(*obj2.deps(), deps);
+
+        match obj2.content() {
             Ok(cnt) => {
                 assert_eq!(content, cnt);
             }
             Err(e) => panic!("Object2 parse error: {:?}", e),
         }
 
-        let expiry3 = Some(2342);
-        let object3 = object.copy(expiry3, repo_pubkey, repo_secret).unwrap();
-        object3.save(&mut store).unwrap();
-        assert_eq!(object3.expiry(), expiry3);
-        match object3.content() {
+        let obj3 = Object::load(obj.id(), None, &store).unwrap();
+
+        println!("obj3.id: {:?}", obj3.id());
+        println!("obj3.key: {:?}", obj3.key());
+        println!("obj3.deps: {:?}", obj3.deps());
+        println!("obj3.blocks.len: {:?}", obj3.blocks().len());
+        let mut i = 0;
+        for node in obj3.blocks() {
+            println!("#{}: {:?}", i, node.id());
+            i += 1;
+        }
+
+        assert_eq!(*obj3.deps(), deps);
+
+        match obj3.content() {
+            Err(ObjectParseError::MissingRootKey) => (),
+            Err(e) => panic!("Object3 parse error: {:?}", e),
+            Ok(_) => panic!("Object3 should not return content"),
+        }
+
+        let exp4 = Some(2342);
+        let obj4 = obj.copy(exp4, repo_pubkey, repo_secret).unwrap();
+        obj4.save(&mut store).unwrap();
+
+        assert_eq!(obj4.expiry(), exp4);
+        assert_eq!(*obj.deps(), deps);
+
+        match obj4.content() {
             Ok(cnt) => {
                 assert_eq!(content, cnt);
             }

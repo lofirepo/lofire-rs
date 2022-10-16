@@ -97,9 +97,9 @@ impl Block {
     }
 
     /// Set the key
-    pub fn set_key(&mut self, key: SymKey) {
+    pub fn set_key(&mut self, key: Option<SymKey>) {
         match self {
-            Block::V0(b) => b.key = Some(key),
+            Block::V0(b) => b.key = key,
         }
     }
 }

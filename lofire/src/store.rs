@@ -111,7 +111,9 @@ impl Store for HashMapStore {
 
     fn put(&mut self, block: &Block) -> Result<BlockId, StorePutError> {
         let id = block.id();
-        self.blocks.insert(id, block.clone());
+        let mut b = block.clone();
+        b.set_key(None);
+        self.blocks.insert(id, b);
         Ok(id)
     }
 
