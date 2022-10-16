@@ -39,12 +39,13 @@ async fn test(cnx: &mut impl BrokerConnection, priv_key: PrivKey) {
         .expect("overlay_connect failed");
 
     let my_block_id = public_overlay_cnx
-        .put_block(&Block::V0(BlockV0 {
-            children: vec![],
-            deps: ObjectDeps::ObjectIdList(vec![]),
-            expiry: None,
-            content: vec![27; 150],
-        }))
+        .put_block(&Block::new(
+            vec![],
+            ObjectDeps::ObjectIdList(vec![]),
+            None,
+            vec![27; 150],
+            None,
+        ))
         .await
         .expect("put_block failed");
 

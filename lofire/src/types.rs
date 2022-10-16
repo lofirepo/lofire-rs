@@ -182,6 +182,14 @@ pub enum ObjectDeps {
 /// A Block is a Merkle tree node.
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
 pub struct BlockV0 {
+    /// Block ID
+    #[serde(skip)]
+    pub id: Option<BlockId>,
+
+    /// Block Key
+    #[serde(skip)]
+    pub key: Option<SymKey>,
+
     /// Block IDs for child nodes in the Merkle tree
     pub children: Vec<BlockId>,
 
