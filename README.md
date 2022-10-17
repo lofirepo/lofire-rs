@@ -1,8 +1,12 @@
 # LoFiRe Rust implementation
 
+## Website
+
+[LoFiRe](https://lofi.re)
+
 ## Design & specification
 
-[LoFiRe: Local-First Repositories for Asynchronous Collaboration over Community Overlay Networks](https://p2pcollab.net/design/lofire)
+[LoFiRe: Local-First Repositories for Asynchronous Collaboration over Community Overlay Networks](https://lofi.re/design/lofire)
 
 ## API documentation
 
