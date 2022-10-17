@@ -6,25 +6,63 @@
 
 ## Development
 
-### Requirements
+### Cargo
+
+Build, test, and generate documentation:
+
+```
+cargo build
+cargo test --all --verbose -- --nocapture
+cargo doc
+```
+
+Run the `lofire-node` daemon and `lofire-demo`:
+
+```
+cargo run --bin lofire-node
+cargo run --bin lofire-demo
+```
+
+### Nix
 
 Install the [Nix package manager](https://nixos.org/download.html)
 and [Nix Flakes](https://nixos.wiki/wiki/Flakes)
 
-### Get a development shell
+#### Get a development shell
+
 ```
 nix develop
 cargo build
+...
 ```
 
-### Build the default package
+#### Build a package
+
+Build the default package (`.#lofire-node`):
+
 ```
 nix build
 ```
 
-### Build a specific package
+Bulid a specific package:
+
 ```
-nix build '.#lofire-repo'
+nix build '.#lofire'
+```
+
+#### Run
+
+Run the default executable (`.#lofire-node`):
+
+```
+nix run
+```
+
+Run executables:
+
+```
+nix run '.#lofire-node'
+nix run '.#lofire-demo'
 ```
 
 ## License
