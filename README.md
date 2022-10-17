@@ -4,6 +4,10 @@
 
 [LoFiRe: Local-First Repositories for Asynchronous Collaboration over Community Overlay Networks](https://p2pcollab.net/design/lofire)
 
+## API documentation
+
+[LoFiRe Rust API Documentation](https://p2pcollab.github.io/lofire-rs/doc/)
+
 ## Development
 
 ### Cargo

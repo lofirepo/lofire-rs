@@ -36,12 +36,16 @@ jobs:
         run: nix develop
       - name: cargo doc
         run: cargo doc --no-deps
+      - name: public/
+        run: mkdir public; mv target/doc public; echo '<html><body><a href="doc">doc</a></body></html>' >public/index.html
+      - name: index.html
+        run: (echo '<html><head><title>LoFiRe Rust API documentation</title></head><body><h1>LoFiRe Rust API documentation</h1><ul>'; for p in lofire*; do echo "<li><a href='$p/index.html'>$p</a></li>"; done; echo '</ul></body></html>') >public/doc/index.html
       - name: Setup Pages
         uses: actions/configure-pages@v2
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v1
         with:
-          path: target/doc
+          path: public
       - name: Deploy to GitHub Pages
         id: deployment
         uses: actions/deploy-pages@v1
