@@ -386,7 +386,7 @@ impl BrokerProtocolHandler {
                                     }
                                 }
                             };
-                            std::thread::sleep(std::time::Duration::from_secs(4));
+                            //std::thread::sleep(std::time::Duration::from_secs(4));
                             return (
                                 Self::prepare_reply_broker_overlay_message_stream(
                                     one_reply.0,
@@ -606,12 +606,12 @@ impl BrokerServer {
     pub fn del_object(
         &self,
         user: PubKey,
-        overlay: OverlayId,
+        overlay: Digest,
         id: ObjectId,
     ) -> Result<(), ProtocolError> {
         self.get_repostore_from_overlay_id(&overlay, |store| {
             // TODO, only admin users can delete on a store on this broker
-            let obj = Object::from_store(id, None, store);
+            let obj = Object::load(id, None, store);
             if obj.is_err() {
                 return Err(ProtocolError::NotFound);
             }
@@ -636,7 +636,7 @@ impl BrokerServer {
     ) -> Result<(), ProtocolError> {
         self.get_repostore_from_overlay_id(&overlay, |store| {
             // TODO, store the user who pins, and manage reference counting on how many users pin/unpin
-            let obj = Object::from_store(id, None, store);
+            let obj = Object::load(id, None, store);
             if obj.is_err() {
                 return Err(ProtocolError::NotFound);
             }
@@ -661,7 +661,7 @@ impl BrokerServer {
     ) -> Result<(), ProtocolError> {
         self.get_repostore_from_overlay_id(&overlay, |store| {
             // TODO, store the user who pins, and manage reference counting on how many users pin/unpin
-            let obj = Object::from_store(id, None, store);
+            let obj = Object::load(id, None, store);
             if obj.is_err() {
                 return Err(ProtocolError::NotFound);
             }
@@ -679,14 +679,17 @@ impl BrokerServer {
     }
 
     pub fn copy_object(
-        &mut self,
+        &self,
         user: PubKey,
         overlay: OverlayId,
         id: ObjectId,
         expiry: Option<Timestamp>,
     ) -> Result<ObjectId, ProtocolError> {
-        //let store = self.get_repostore_from_overlay_id(&overlay)?;
-        //Ok(Object::copy(id, expiry, store)?)
+        // self.get_repostore_from_overlay_id(&overlay, |store| {
+        //     // TODO, only admin users can delete on a store on this broker
+        //     //let obj = Object::from_store(id, None, store);
+        //     //Ok(Object::copy(id, expiry, store)?)
+        // });
         todo!();
     }
 
@@ -718,7 +721,7 @@ impl BrokerServer {
                     .map_err(|_e| ProtocolError::CannotSend)?;
                 Ok(r)
             } else {
-                let obj = Object::from_store(id, None, store);
+                let obj = Object::load(id, None, store);
                 // TODO return partial blocks when some are missing ?
                 if obj.is_err() {
                     //&& obj.err().unwrap().len() == 1 && obj.err().unwrap()[0] == id {

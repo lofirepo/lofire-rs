@@ -17,8 +17,8 @@ use lofire_net::errors::*;
 use lofire_net::types::*;
 
 fn block_size() -> usize {
-    //store_max_value_size()
-    store_valid_value_size(0)
+    store_max_value_size()
+    //store_valid_value_size(0)
 }
 
 async fn test(cnx: &mut impl BrokerConnection, pub_key: PubKey, priv_key: PrivKey) {
@@ -46,12 +46,13 @@ async fn test(cnx: &mut impl BrokerConnection, pub_key: PubKey, priv_key: PrivKe
         .expect("overlay_connect failed");
 
     let my_block_id = public_overlay_cnx
-        .put_block(&Block::V0(BlockV0 {
-            children: vec![],
-            deps: ObjectDeps::ObjectIdList(vec![]),
-            expiry: None,
-            content: vec![27; 150],
-        }))
+        .put_block(&Block::new(
+            vec![],
+            ObjectDeps::ObjectIdList(vec![]),
+            None,
+            vec![27; 150],
+            None,
+        ))
         .await
         .expect("put_block failed");
 

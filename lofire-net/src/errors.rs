@@ -27,6 +27,7 @@ pub enum ProtocolError {
     EndOfStream,
     StoreError,
     MissingBlocks,
+    ObjectParseError,
     InvalidValue,
     UserAlreadyExists,
     RepoIdRequired,

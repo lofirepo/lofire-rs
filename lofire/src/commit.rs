@@ -13,7 +13,7 @@ use crate::types::*;
 #[derive(Debug)]
 pub enum CommitLoadError {
     MissingBlocks(Vec<BlockId>),
-    BlockParseError(BlockId),
+    ObjectParseError,
     DeserializeError,
 }
 
@@ -120,11 +120,11 @@ impl Commit {
     /// Load commit from store
     pub fn load(commit_ref: ObjectRef, store: &impl RepoStore) -> Result<Commit, CommitLoadError> {
         let (id, key) = (commit_ref.id, commit_ref.key);
-        match Object::from_store(id, Some(key), store) {
+        match Object::load(id, Some(key), store) {
             Ok(obj) => {
                 let content = obj
                     .content()
-                    .map_err(|_e| CommitLoadError::BlockParseError(id))?;
+                    .map_err(|_e| CommitLoadError::ObjectParseError)?;
                 let mut commit = match content {
                     ObjectContent::Commit(c) => c,
                     _ => return Err(CommitLoadError::DeserializeError),
@@ -133,7 +133,10 @@ impl Commit {
                 commit.set_key(key);
                 Ok(commit)
             }
-            Err(missing) => Err(CommitLoadError::MissingBlocks(missing)),
+            Err(ObjectParseError::MissingBlocks(missing)) => {
+                Err(CommitLoadError::MissingBlocks(missing))
+            }
+            Err(_) => Err(CommitLoadError::ObjectParseError),
         }
     }
 
@@ -141,11 +144,13 @@ impl Commit {
     pub fn load_body(&self, store: &impl RepoStore) -> Result<CommitBody, CommitLoadError> {
         let content = self.content();
         let (id, key) = (content.body.id, content.body.key);
-        let obj = Object::from_store(id.clone(), Some(key.clone()), store)
-            .map_err(|missing| CommitLoadError::MissingBlocks(missing))?;
+        let obj = Object::load(id.clone(), Some(key.clone()), store).map_err(|e| match e {
+            ObjectParseError::MissingBlocks(missing) => CommitLoadError::MissingBlocks(missing),
+            _ => CommitLoadError::ObjectParseError,
+        })?;
         let content = obj
             .content()
-            .map_err(|_e| CommitLoadError::BlockParseError(id))?;
+            .map_err(|_e| CommitLoadError::ObjectParseError)?;
         match content {
             ObjectContent::CommitBody(body) => Ok(body),
             _ => Err(CommitLoadError::DeserializeError),

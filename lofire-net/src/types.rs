@@ -210,12 +210,11 @@ pub struct EventContentV0 {
     /// Pub/sub topic
     pub topic: TopicId,
 
-    /// Publisher pubkey hash
-    /// BLAKE3 keyed hash over branch member pubkey
-    /// - key: BLAKE3 derive_key ("LoFiRe Event publisher BLAKE3 key",
+    /// Publisher pubkey encrypted with ChaCha20:
+    /// - key: BLAKE3 derive_key ("LoFiRe Event Publisher ChaCha20 key",
     ///                           repo_pubkey + repo_secret +
     ///                           branch_pubkey + branch_secret)
-    pub publisher: Digest,
+    pub publisher: [u8; 32], // PubKey
 
     /// Commit sequence number of publisher
     pub seq: u32,
@@ -808,10 +807,6 @@ pub struct OverlayJoinV0 {
     /// Only set for local brokers.
     pub repo_pubkey: Option<PubKey>,
 
-    /// Secret for the repository.
-    /// Only set for local brokers.
-    // pub repo_secret: Option<SymKey>,
-
     /// Peers to connect to
     pub peers: Vec<PeerAdvert>,
 }
@@ -844,6 +839,28 @@ impl OverlayJoin {
 #[derive(Clone, Copy, Debug, Serialize, Deserialize)]
 pub enum OverlayLeave {
     V0(),
+}
+
+/// Overlay status request
+#[derive(Clone, Copy, Debug, Serialize, Deserialize)]
+pub enum OverlayStatusReq {
+    V0(),
+}
+
+/// Overlay status response
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct OverlayStatusRespV0 {
+    /// Whether or not the broker has joined the overlay
+    pub joined: bool,
+
+    /// List of peers currently connected in the overlay
+    pub peers: Vec<PeerAdvert>,
+}
+
+/// Overlay status response
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub enum OverlayStatusResp {
+    V0(OverlayStatusRespV0),
 }
 
 /// Request a Block by ID
@@ -1051,7 +1068,8 @@ pub enum TopicDisconnect {
 /// Content of `BrokerOverlayRequestV0`
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub enum BrokerOverlayRequestContentV0 {
-    OverlayConnect(OverlayConnect),
+    OverlayConnect(OverlayConnect), // FIXME remove
+    OverlayStatusReq(OverlayStatusReq),
     OverlayJoin(OverlayJoin),
     OverlayLeave(OverlayLeave),
     TopicSub(TopicSub),
@@ -1102,6 +1120,7 @@ impl BrokerOverlayRequest {
 pub enum BrokerOverlayResponseContentV0 {
     Block(Block),
     ObjectId(ObjectId),
+    OverlayStatusResp(OverlayStatusResp),
 }
 
 /// Response to a `BrokerOverlayRequest`

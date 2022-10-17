@@ -111,10 +111,6 @@ impl RepoStore for LmdbRepoStore {
     fn del(&mut self, block_id: &BlockId) -> Result<(Block, usize), StoreDelError> {
         self._del(block_id)
     }
-
-    fn copy(&mut self, id: ObjectId, expiry: Option<Timestamp>) -> Result<ObjectId, StoreGetError> {
-        self._copy(id, expiry)
-    }
 }
 
 impl LmdbRepoStore {
@@ -238,16 +234,6 @@ impl LmdbRepoStore {
 
         writer.commit().unwrap();
         Ok((block, slice.len()))
-    }
-
-    pub fn _copy(&self, id: BlockId, expiry: Option<Timestamp>) -> Result<BlockId, StoreGetError> {
-        //FIXME: there is no restriction for now on the new timestamp, we said it should be only decreased, not increased.
-        let mut obj = self.get(&id)?;
-        if obj.expiry() == expiry {
-            return Err(StoreGetError::InvalidValue);
-        }
-        obj.change_expiry(expiry);
-        self._put(&obj).map_err(|e| StoreGetError::BackendError)
     }
 
     //FIXME: use BlockId, not ObjectId. this is a block level operation
@@ -528,13 +514,14 @@ mod test {
         now -= 200;
         // TODO: fix the LMDB bug that is triggered with x max set to 86 !!!
         for x in 1..85 {
-            let block = BlockV0 {
-                children: Vec::new(),
-                deps: ObjectDeps::ObjectIdList(Vec::new()),
-                expiry: None,
-                content: vec![x; 10],
-            };
-            let block_id = store.put(&Block::V0(block.clone())).unwrap();
+            let block = Block::new(
+                Vec::new(),
+                ObjectDeps::ObjectIdList(Vec::new()),
+                None,
+                vec![x; 10],
+                None,
+            );
+            let block_id = store.put(&block).unwrap();
             println!("#{} -> objId {:?}", x, block_id);
             store
                 .has_been_synced(&block_id, Some(now + x as u32))
@@ -560,13 +547,14 @@ mod test {
         now -= 200;
         // TODO: fix the LMDB bug that is triggered with x max set to 86 !!!
         for x in 1..100 {
-            let block = BlockV0 {
-                children: Vec::new(),
-                deps: ObjectDeps::ObjectIdList(Vec::new()),
-                expiry: None,
-                content: vec![x; 10],
-            };
-            let obj_id = store.put(&Block::V0(block.clone())).unwrap();
+            let block = Block::new(
+                Vec::new(),
+                ObjectDeps::ObjectIdList(Vec::new()),
+                None,
+                vec![x; 10],
+                None,
+            );
+            let obj_id = store.put(&block).unwrap();
             println!("#{} -> objId {:?}", x, obj_id);
             store.set_pin(&obj_id, true).unwrap();
             store
@@ -633,19 +621,20 @@ mod test {
         let mut i = 0u8;
         for expiry in list {
             //let i: u8 = (expiry + 10 - now).try_into().unwrap();
-            let block = BlockV0 {
-                children: Vec::new(),
-                deps: ObjectDeps::ObjectIdList(Vec::new()),
-                expiry: Some(expiry),
-                content: [i].to_vec(),
-            };
-            let block_id = store.put(&Block::V0(block.clone())).unwrap();
+            let block = Block::new(
+                Vec::new(),
+                ObjectDeps::ObjectIdList(Vec::new()),
+                Some(expiry),
+                [i].to_vec(),
+                None,
+            );
+            let block_id = store.put(&block).unwrap();
             println!("#{} -> objId {:?}", i, block_id);
             block_ids.push(block_id);
             i += 1;
         }
 
-        store.remove_expired();
+        store.remove_expired().unwrap();
 
         assert!(store.get(block_ids.get(0).unwrap()).is_err());
         assert!(store.get(block_ids.get(1).unwrap()).is_err());
@@ -681,19 +670,20 @@ mod test {
         let mut i = 0u8;
         for expiry in list {
             //let i: u8 = (expiry + 10 - now).try_into().unwrap();
-            let block = BlockV0 {
-                children: Vec::new(),
-                deps: ObjectDeps::ObjectIdList(Vec::new()),
-                expiry: Some(expiry),
-                content: [i].to_vec(),
-            };
-            let block_id = store.put(&Block::V0(block.clone())).unwrap();
+            let block = Block::new(
+                Vec::new(),
+                ObjectDeps::ObjectIdList(Vec::new()),
+                Some(expiry),
+                [i].to_vec(),
+                None,
+            );
+            let block_id = store.put(&block).unwrap();
             println!("#{} -> objId {:?}", i, block_id);
             block_ids.push(block_id);
             i += 1;
         }
 
-        store.remove_expired();
+        store.remove_expired().unwrap();
 
         assert!(store.get(block_ids.get(0).unwrap()).is_err());
         assert!(store.get(block_ids.get(1).unwrap()).is_err());
@@ -710,9 +700,8 @@ mod test {
         let key: [u8; 32] = [0; 32];
         fs::create_dir_all(root.path()).unwrap();
         println!("{}", root.path().to_str().unwrap());
-        let mut store = LmdbRepoStore::open(root.path(), key);
-
-        store.remove_expired();
+        let store = LmdbRepoStore::open(root.path(), key);
+        store.remove_expired().unwrap();
     }
 
     #[test]
@@ -727,14 +716,16 @@ mod test {
 
         let mut store = LmdbRepoStore::open(root.path(), key);
 
-        let block = BlockV0 {
-            children: Vec::new(),
-            deps: ObjectDeps::ObjectIdList(Vec::new()),
-            expiry: None,
-            content: b"abc".to_vec(),
-        };
+        let block = Block::new(
+            Vec::new(),
+            ObjectDeps::ObjectIdList(Vec::new()),
+            None,
+            b"abc".to_vec(),
+            None,
+        );
 
-        let block_id = store.put(&Block::V0(block.clone())).unwrap();
+        let block_id = store.put(&block).unwrap();
+        assert_eq!(block_id, block.id());
 
         println!("ObjectId: {:?}", block_id);
         assert_eq!(
@@ -748,7 +739,7 @@ mod test {
         let block_res = store.get(&block_id).unwrap();
 
         println!("Block: {:?}", block_res);
-        assert_eq!(block_res, Block::V0(block));
+        assert_eq!(block_res.id(), block.id());
     }
 
     #[test]
@@ -774,7 +765,7 @@ mod test {
 
             println!("LMDB Version: {}", env.version());
 
-            let mut store = env.open_single("testdb", StoreOptions::create()).unwrap();
+            let store = env.open_single("testdb", StoreOptions::create()).unwrap();
 
             {
                 // Use a write transaction to mutate the store via a `Writer`. There can be only

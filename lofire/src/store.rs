@@ -13,9 +13,6 @@ pub trait RepoStore {
 
     /// Delete a block from the store.
     fn del(&mut self, id: &BlockId) -> Result<(Block, usize), StoreDelError>;
-
-    /// Copy an object with a different expiry time, or no expiry time.
-    fn copy(&mut self, id: ObjectId, expiry: Option<Timestamp>) -> Result<ObjectId, StoreGetError>;
 }
 
 #[derive(Debug, PartialEq)]
@@ -101,7 +98,9 @@ impl RepoStore for HashMapRepoStore {
 
     fn put(&mut self, block: &Block) -> Result<BlockId, StorePutError> {
         let id = block.id();
-        self.blocks.insert(id, block.clone());
+        let mut b = block.clone();
+        b.set_key(None);
+        self.blocks.insert(id, b);
         Ok(id)
     }
 
@@ -110,59 +109,4 @@ impl RepoStore for HashMapRepoStore {
         let size = size_of_val(&block);
         Ok((block, size))
     }
-
-    fn copy(&mut self, id: ObjectId, expiry: Option<Timestamp>) -> Result<ObjectId, StoreGetError> {
-        todo!();
-    }
-
-    // fn get_account(&self, id: &PubKey) -> Result<Vec<u8>, StoreGetError> {
-    //     match self.accounts.get(id) {
-    //         Some(value) => Ok(value.clone()),
-    //         None => Err(StoreGetError::NotFound),
-    //     }
-    // }
-
-    // fn put_account(&mut self, id: PubKey, account: Vec<u8>) -> Result<(), StorePutError> {
-    //     self.accounts.insert(id, account);
-    //     Ok(())
-    // }
-
-    // fn del_account(&mut self, id: &PubKey) -> Result<Vec<u8>, StoreDelError> {
-    //     let value = self.accounts.remove(id).ok_or(StoreDelError::NotFound)?;
-    //     Ok(value)
-    // }
-
-    // fn get_overlay(&self, id: &Digest) -> Result<Vec<u8>, StoreGetError> {
-    //     match self.overlays.get(id) {
-    //         Some(value) => Ok(value.clone()),
-    //         None => Err(StoreGetError::NotFound),
-    //     }
-    // }
-
-    // fn put_overlay(&mut self, id: Digest, overlay: Vec<u8>) -> Result<(), StorePutError> {
-    //     self.overlays.insert(id, overlay);
-    //     Ok(())
-    // }
-
-    // fn del_overlay(&mut self, id: &Digest) -> Result<Vec<u8>, StoreDelError> {
-    //     let value = self.overlays.remove(id).ok_or(StoreDelError::NotFound)?;
-    //     Ok(value)
-    // }
-
-    // fn get_topic(&self, id: &PubKey) -> Result<Vec<u8>, StoreGetError> {
-    //     match self.topics.get(id) {
-    //         Some(value) => Ok(value.clone()),
-    //         None => Err(StoreGetError::NotFound),
-    //     }
-    // }
-
-    // fn put_topic(&mut self, id: PubKey, topic: Vec<u8>) -> Result<(), StorePutError> {
-    //     self.topics.insert(id, topic);
-    //     Ok(())
-    // }
-
-    // fn del_topic(&mut self, id: &PubKey) -> Result<Vec<u8>, StoreDelError> {
-    //     let value = self.topics.remove(id).ok_or(StoreDelError::NotFound)?;
-    //     Ok(value)
-    // }
 }
