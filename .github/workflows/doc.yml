@@ -1,0 +1,51 @@
+# Simple workflow for deploying static content to GitHub Pages
+name: Publish documentation
+
+on:
+  # Runs on pushes targeting the default branch
+  push:
+    branches: [$default-branch]
+
+  # Allows you to run this workflow manually from the Actions tab
+  workflow_dispatch:
+
+# Sets permissions of the GITHUB_TOKEN to allow deployment to GitHub Pages
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# Allow one concurrent deployment
+concurrency:
+  group: "pages"
+  cancel-in-progress: true
+
+jobs:
+  # Single deploy job since we're just deploying
+  deploy:
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - uses: nixbuild/nix-quick-install-action@v17
+        with:
+          nix_conf: experimental-features = nix-command flakes
+      - name: nix develop
+        run: nix develop
+      - name: cargo doc
+        run: cargo doc --no-deps
+      - name: public/
+        run: mkdir public; mv target/doc public; echo '<html><body><a href="doc">doc</a></body></html>' >public/index.html
+      - name: index.html
+        run: (echo '<html><head><title>LoFiRe Rust API documentation</title></head><body><h1>LoFiRe Rust API documentation</h1><ul>'; for p in lofire*; do echo "<li><a href='$p/index.html'>$p</a></li>"; done; echo '</ul></body></html>') >public/doc/index.html
+      - name: Setup Pages
+        uses: actions/configure-pages@v2
+      - name: Upload artifact
+        uses: actions/upload-pages-artifact@v1
+        with:
+          path: public
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v1

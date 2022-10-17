@@ -4,7 +4,7 @@ jobs:
   cargo-build-test:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v2
+      - uses: actions/checkout@v3
       - uses: nixbuild/nix-quick-install-action@v17
         with:
           nix_conf: experimental-features = nix-command flakes
@@ -18,7 +18,7 @@ jobs:
   default-package:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v2
+      - uses: actions/checkout@v3
       - uses: nixbuild/nix-quick-install-action@v17
         with:
           nix_conf: experimental-features = nix-command flakes
@@ -28,7 +28,7 @@ jobs:
   lofire-package:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v2
+      - uses: actions/checkout@v3
       - uses: nixbuild/nix-quick-install-action@v17
         with:
           nix_conf: experimental-features = nix-command flakes
@@ -38,7 +38,7 @@ jobs:
   lofire-broker-package:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v2
+      - uses: actions/checkout@v3
       - uses: nixbuild/nix-quick-install-action@v17
         with:
           nix_conf: experimental-features = nix-command flakes
@@ -48,7 +48,7 @@ jobs:
   lofire-p2p-package:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v2
+      - uses: actions/checkout@v3
       - uses: nixbuild/nix-quick-install-action@v17
         with:
           nix_conf: experimental-features = nix-command flakes
@@ -58,7 +58,7 @@ jobs:
   lofire-node-package:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v2
+      - uses: actions/checkout@v3
       - uses: nixbuild/nix-quick-install-action@v17
         with:
           nix_conf: experimental-features = nix-command flakes
@@ -68,7 +68,7 @@ jobs:
   lofire-demo-package:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v2
+      - uses: actions/checkout@v3
       - uses: nixbuild/nix-quick-install-action@v17
         with:
           nix_conf: experimental-features = nix-command flakes
