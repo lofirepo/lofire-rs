@@ -8,15 +8,41 @@
 
 ### Cargo
 
-Build, test, and generate documentation:
+#### Build
+
+Build all packages:
 
 ```
 cargo build
+```
+
+#### Test
+
+Test all:
+
+```
 cargo test --all --verbose -- --nocapture
+```
+
+Test a single module:
+
+```
+cargo test --package lofire --lib -- branch::test --nocapture
+```
+
+#### Documentation
+
+Generate documentation:
+
+```
 cargo doc
 ```
 
-Run the `lofire-node` daemon and `lofire-demo`:
+The generated documentation can be found in `target/doc/<crate-name>`.
+
+#### Run
+
+Build & run executables:
 
 ```
 cargo run --bin lofire-node
@@ -28,7 +54,9 @@ cargo run --bin lofire-demo
 Install the [Nix package manager](https://nixos.org/download.html)
 and [Nix Flakes](https://nixos.wiki/wiki/Flakes)
 
-#### Get a development shell
+#### Development shell
+
+Get a development shell with all dependencies available:
 
 ```
 nix develop
