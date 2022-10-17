@@ -2,11 +2,16 @@ use async_tungstenite::async_std::connect_async;
 use async_tungstenite::client_async;
 use async_tungstenite::tungstenite::{Error, Message};
 use debug_print::*;
+use ed25519_dalek::*;
+use fastbloom_rs::{BloomFilter as Filter, FilterBuilder, Membership};
 use futures::{future, pin_mut, stream, SinkExt, StreamExt};
-use lofire::store::{store_max_value_size, store_valid_value_size};
+use lofire::object::Object;
+use lofire::store::{store_max_value_size, store_valid_value_size, HashMapRepoStore, RepoStore};
 use lofire_broker::config::ConfigMode;
 use lofire_store_lmdb::brokerstore::LmdbBrokerStore;
 use lofire_store_lmdb::repostore::LmdbRepoStore;
+use rand::rngs::OsRng;
+use std::collections::HashMap;
 use std::thread;
 
 use lofire::types::*;
@@ -19,6 +24,414 @@ use lofire_net::types::*;
 fn block_size() -> usize {
     store_max_value_size()
     //store_valid_value_size(0)
+}
+
+async fn test_sync(cnx: &mut impl BrokerConnection, user_pub_key: PubKey, userpriv_key: PrivKey) {
+    fn add_obj(
+        content: ObjectContent,
+        deps: Vec<ObjectId>,
+        expiry: Option<Timestamp>,
+        repo_pubkey: PubKey,
+        repo_secret: SymKey,
+        store: &mut impl RepoStore,
+    ) -> ObjectRef {
+        let max_object_size = 4000;
+        let obj = Object::new(
+            content,
+            deps,
+            expiry,
+            max_object_size,
+            repo_pubkey,
+            repo_secret,
+        );
+        //println!(">>> add_obj");
+        println!("     id: {}", obj.id());
+        //println!("     deps: {:?}", obj.deps());
+        obj.save(store).unwrap();
+        obj.reference().unwrap()
+    }
+
+    fn add_commit(
+        branch: ObjectRef,
+        author_privkey: PrivKey,
+        author_pubkey: PubKey,
+        seq: u32,
+        deps: Vec<ObjectRef>,
+        acks: Vec<ObjectRef>,
+        body_ref: ObjectRef,
+        repo_pubkey: PubKey,
+        repo_secret: SymKey,
+        store: &mut impl RepoStore,
+    ) -> ObjectRef {
+        let mut obj_deps: Vec<ObjectId> = vec![];
+        obj_deps.extend(deps.iter().map(|r| r.id));
+        obj_deps.extend(acks.iter().map(|r| r.id));
+
+        let obj_ref = ObjectRef {
+            id: ObjectId::Blake3Digest32([1; 32]),
+            key: SymKey::ChaCha20Key([2; 32]),
+        };
+        let refs = vec![obj_ref];
+        let metadata = vec![5u8; 55];
+        let expiry = None;
+
+        let commit = Commit::new(
+            author_privkey,
+            author_pubkey,
+            seq,
+            branch,
+            deps,
+            acks,
+            refs,
+            metadata,
+            body_ref,
+            expiry,
+        )
+        .unwrap();
+        //println!("commit: {}", commit.id().unwrap());
+        add_obj(
+            ObjectContent::Commit(commit),
+            obj_deps,
+            expiry,
+            repo_pubkey,
+            repo_secret,
+            store,
+        )
+    }
+
+    fn add_body_branch(
+        branch: Branch,
+        repo_pubkey: PubKey,
+        repo_secret: SymKey,
+        store: &mut impl RepoStore,
+    ) -> ObjectRef {
+        let deps = vec![];
+        let expiry = None;
+        let body = CommitBody::Branch(branch);
+        //println!("body: {:?}", body);
+        add_obj(
+            ObjectContent::CommitBody(body),
+            deps,
+            expiry,
+            repo_pubkey,
+            repo_secret,
+            store,
+        )
+    }
+
+    fn add_body_trans(
+        deps: Vec<ObjectId>,
+        repo_pubkey: PubKey,
+        repo_secret: SymKey,
+        store: &mut impl RepoStore,
+    ) -> ObjectRef {
+        let expiry = None;
+        let content = [7u8; 777].to_vec();
+        let body = CommitBody::Transaction(Transaction::V0(content));
+        //println!("body: {:?}", body);
+        add_obj(
+            ObjectContent::CommitBody(body),
+            deps,
+            expiry,
+            repo_pubkey,
+            repo_secret,
+            store,
+        )
+    }
+
+    fn add_body_ack(
+        deps: Vec<ObjectId>,
+        repo_pubkey: PubKey,
+        repo_secret: SymKey,
+        store: &mut impl RepoStore,
+    ) -> ObjectRef {
+        let expiry = None;
+        let body = CommitBody::Ack(Ack::V0());
+        //println!("body: {:?}", body);
+        add_obj(
+            ObjectContent::CommitBody(body),
+            deps,
+            expiry,
+            repo_pubkey,
+            repo_secret,
+            store,
+        )
+    }
+
+    let mut store = HashMapRepoStore::new();
+    let mut rng = OsRng {};
+
+    // repo
+
+    let repo_keypair: Keypair = Keypair::generate(&mut rng);
+    // println!(
+    //     "repo private key: ({}) {:?}",
+    //     repo_keypair.secret.as_bytes().len(),
+    //     repo_keypair.secret.as_bytes()
+    // );
+    // println!(
+    //     "repo public key: ({}) {:?}",
+    //     repo_keypair.public.as_bytes().len(),
+    //     repo_keypair.public.as_bytes()
+    // );
+    let _repo_privkey = PrivKey::Ed25519PrivKey(repo_keypair.secret.to_bytes());
+    let repo_pubkey = PubKey::Ed25519PubKey(repo_keypair.public.to_bytes());
+    let repo_secret = SymKey::ChaCha20Key([9; 32]);
+
+    let repolink = RepoLink::V0(RepoLinkV0 {
+        id: repo_pubkey,
+        secret: repo_secret,
+        peers: vec![],
+    });
+
+    // branch
+
+    let branch_keypair: Keypair = Keypair::generate(&mut rng);
+    //println!("branch public key: {:?}", branch_keypair.public.as_bytes());
+    let branch_pubkey = PubKey::Ed25519PubKey(branch_keypair.public.to_bytes());
+
+    let member_keypair: Keypair = Keypair::generate(&mut rng);
+    //println!("member public key: {:?}", member_keypair.public.as_bytes());
+    let member_privkey = PrivKey::Ed25519PrivKey(member_keypair.secret.to_bytes());
+    let member_pubkey = PubKey::Ed25519PubKey(member_keypair.public.to_bytes());
+
+    let metadata = [66u8; 64].to_vec();
+    let commit_types = vec![CommitType::Ack, CommitType::Transaction];
+    let secret = SymKey::ChaCha20Key([0; 32]);
+
+    let member = MemberV0::new(member_pubkey, commit_types, metadata.clone());
+    let members = vec![member];
+    let mut quorum = HashMap::new();
+    quorum.insert(CommitType::Transaction, 3);
+    let ack_delay = RelTime::Minutes(3);
+    let tags = [99u8; 32].to_vec();
+    let branch = Branch::new(
+        branch_pubkey,
+        branch_pubkey,
+        secret,
+        members,
+        quorum,
+        ack_delay,
+        tags,
+        metadata,
+    );
+    //println!("branch: {:?}", branch);
+
+    println!("branch deps/acks:");
+    println!("");
+    println!("     br");
+    println!("    /  \\");
+    println!("  t1   t2");
+    println!("  / \\  / \\");
+    println!(" a3  t4<--t5-->(t1)");
+    println!("     / \\");
+    println!("   a6   a7");
+    println!("");
+
+    // commit bodies
+
+    let branch_body = add_body_branch(
+        branch.clone(),
+        repo_pubkey.clone(),
+        repo_secret.clone(),
+        &mut store,
+    );
+    let ack_body = add_body_ack(vec![], repo_pubkey, repo_secret, &mut store);
+    let trans_body = add_body_trans(vec![], repo_pubkey, repo_secret, &mut store);
+
+    // create & add commits to store
+
+    println!(">> br");
+    let br = add_commit(
+        branch_body,
+        member_privkey,
+        member_pubkey,
+        0,
+        vec![],
+        vec![],
+        branch_body,
+        repo_pubkey,
+        repo_secret,
+        &mut store,
+    );
+
+    println!(">> t1");
+    let t1 = add_commit(
+        branch_body,
+        member_privkey,
+        member_pubkey,
+        1,
+        vec![br],
+        vec![],
+        trans_body,
+        repo_pubkey,
+        repo_secret,
+        &mut store,
+    );
+
+    println!(">> t2");
+    let t2 = add_commit(
+        branch_body,
+        member_privkey,
+        member_pubkey,
+        2,
+        vec![br],
+        vec![],
+        trans_body,
+        repo_pubkey,
+        repo_secret,
+        &mut store,
+    );
+
+    println!(">> a3");
+    let a3 = add_commit(
+        branch_body,
+        member_privkey,
+        member_pubkey,
+        3,
+        vec![t1],
+        vec![],
+        ack_body,
+        repo_pubkey,
+        repo_secret,
+        &mut store,
+    );
+
+    println!(">> t4");
+    let t4 = add_commit(
+        branch_body,
+        member_privkey,
+        member_pubkey,
+        4,
+        vec![t2],
+        vec![t1],
+        trans_body,
+        repo_pubkey,
+        repo_secret,
+        &mut store,
+    );
+
+    println!(">> t5");
+    let t5 = add_commit(
+        branch_body,
+        member_privkey,
+        member_pubkey,
+        5,
+        vec![t1, t2],
+        vec![t4],
+        trans_body,
+        repo_pubkey,
+        repo_secret,
+        &mut store,
+    );
+
+    println!(">> a6");
+    let a6 = add_commit(
+        branch_body,
+        member_privkey,
+        member_pubkey,
+        6,
+        vec![t4],
+        vec![],
+        ack_body,
+        repo_pubkey,
+        repo_secret,
+        &mut store,
+    );
+
+    println!(">> a7");
+    let a7 = add_commit(
+        branch_body,
+        member_privkey,
+        member_pubkey,
+        7,
+        vec![t4],
+        vec![],
+        ack_body,
+        repo_pubkey,
+        repo_secret,
+        &mut store,
+    );
+
+    let mut public_overlay_cnx = cnx
+        .overlay_connect(&repolink, true)
+        .await
+        .expect("overlay_connect failed");
+
+    // Sending everything to the broker, so he can pretend he is usefull for something a little bit..
+    for (k, v) in store.get_all() {
+        debug_println!("SENDING {}", k);
+        let _ = public_overlay_cnx
+            .put_block(v)
+            .await
+            .expect("put_block failed");
+    }
+
+    // Now emptying the local store of the client, and adding only 1 commit into it (br)
+    // we also have received an commit (t5) but we don't know what to do with it...
+    let mut store = HashMapRepoStore::new();
+
+    let br = add_commit(
+        branch_body,
+        member_privkey,
+        member_pubkey,
+        0,
+        vec![],
+        vec![],
+        branch_body,
+        repo_pubkey,
+        repo_secret,
+        &mut store,
+    );
+
+    let t5 = add_commit(
+        branch_body,
+        member_privkey,
+        member_pubkey,
+        5,
+        vec![t1, t2],
+        vec![t4],
+        trans_body,
+        repo_pubkey,
+        repo_secret,
+        &mut store,
+    );
+
+    debug_println!("LOCAL STORE HAS {} BLOCKS", store.get_all().len());
+
+    // Let's pretend that we know that the head of the branch in the broker is at commits a6 and a7.
+    // normally it would be the pub/sub that notifies us of those heads.
+    // now we want to synchronize with the broker.
+
+    let mut filter = Filter::new(FilterBuilder::new(10, 0.01));
+    for commit_ref in [br, t5] {
+        match commit_ref.id {
+            ObjectId::Blake3Digest32(d) => filter.add(&d),
+        }
+    }
+    let cfg = filter.config();
+
+    let known_commits = BloomFilter {
+        k: cfg.hashes,
+        f: filter.get_u8_array().to_vec(),
+    };
+
+    let known_heads = [br.id];
+
+    let remote_heads = [a6.id, a7.id];
+
+    let mut synced_blocks_stream = public_overlay_cnx
+        .sync_branch(remote_heads.to_vec(), known_heads.to_vec(), known_commits)
+        .await
+        .expect("sync_branch failed");
+
+    let mut i = 0;
+    while let Some(b) = synced_blocks_stream.next().await {
+        debug_println!("GOT BLOCK {}", b.id());
+        i += 1;
+    }
+
+    debug_println!("SYNCED {} BLOCKS", i);
 }
 
 async fn test(cnx: &mut impl BrokerConnection, pub_key: PubKey, priv_key: PrivKey) {
@@ -120,6 +533,10 @@ async fn test(cnx: &mut impl BrokerConnection, pub_key: PubKey, priv_key: PrivKe
     debug_println!("result from get object after delete: {}", res);
 
     //TODO test pin/unpin
+
+    // TEST BRANCH SYNC
+
+    test_sync(cnx, pub_key, priv_key).await;
 }
 
 async fn test_local_connection() {

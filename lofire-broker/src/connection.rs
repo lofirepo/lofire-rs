@@ -161,7 +161,23 @@ where
         overlay
     }
 
-    pub fn sync_branch(&self) {}
+    pub async fn sync_branch(
+        &mut self,
+        heads: Vec<ObjectId>,
+        known_heads: Vec<ObjectId>,
+        known_commits: BloomFilter,
+    ) -> Result<Pin<Box<T::BlockStream>>, ProtocolError> {
+        self.broker
+            .process_overlay_request_stream_response(
+                self.overlay,
+                BrokerOverlayRequestContentV0::BranchSyncReq(BranchSyncReq::V0(BranchSyncReqV0 {
+                    heads,
+                    known_heads,
+                    known_commits,
+                })),
+            )
+            .await
+    }
 
     pub fn leave(&self) {}
 
@@ -342,7 +358,7 @@ pub trait BrokerConnection {
         public: bool,
     ) -> Result<OverlayConnectionClient<Self::OC>, ProtocolError>;
 
-    // TODO: remove those 3 functions from trait. they are used internally only. should not be exposed to end-user
+    // TODO: remove those 4 functions from trait. they are used internally only. should not be exposed to end-user
     async fn process_overlay_request(
         &mut self,
         overlay: OverlayId,
@@ -441,11 +457,11 @@ impl<'a> BrokerConnection for BrokerConnectionLocal<'a> {
     ) -> Result<(), ProtocolError> {
         match request {
             BrokerOverlayRequestContentV0::OverlayConnect(_) => {
-                self.broker.overlay_connect(self.user, overlay)
+                self.broker.connect_overlay(self.user, overlay)
             }
             BrokerOverlayRequestContentV0::OverlayJoin(j) => {
                 self.broker
-                    .overlay_join(self.user, overlay, j.repo_pubkey(), j.secret(), j.peers())
+                    .join_overlay(self.user, overlay, j.repo_pubkey(), j.secret(), j.peers())
             }
             BrokerOverlayRequestContentV0::ObjectPin(op) => {
                 self.broker.pin_object(self.user, overlay, op.id())
@@ -457,7 +473,7 @@ impl<'a> BrokerConnection for BrokerConnectionLocal<'a> {
                 self.broker.del_object(self.user, overlay, op.id())
             }
             BrokerOverlayRequestContentV0::BlockPut(b) => {
-                self.broker.block_put(self.user, overlay, b.block())
+                self.broker.put_block(self.user, overlay, b.block())
             }
             _ => Err(ProtocolError::InvalidState),
         }
@@ -486,7 +502,17 @@ impl<'a> BrokerConnection for BrokerConnectionLocal<'a> {
             // TODO BranchSyncReq
             BrokerOverlayRequestContentV0::BlockGet(b) => self
                 .broker
-                .block_get(self.user, overlay, b.id(), b.include_children(), b.topic())
+                .get_block(self.user, overlay, b.id(), b.include_children(), b.topic())
+                .map(|r| Box::pin(r)),
+            BrokerOverlayRequestContentV0::BranchSyncReq(b) => self
+                .broker
+                .sync_branch(
+                    self.user,
+                    &overlay,
+                    b.heads(),
+                    b.known_heads(),
+                    b.known_commits(),
+                )
                 .map(|r| Box::pin(r)),
             _ => Err(ProtocolError::InvalidState),
         }

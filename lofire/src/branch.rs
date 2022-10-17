@@ -99,12 +99,12 @@ impl Branch {
     pub fn sync_req(
         our_heads: &[ObjectId],
         their_heads: &[ObjectId],
-        their_filter: BloomFilter,
+        their_filter: &BloomFilter,
         store: &impl RepoStore,
     ) -> Result<Vec<ObjectId>, ObjectParseError> {
-        debug_println!(">> branch_sync");
-        debug_println!("   our_heads: {:?}", our_heads);
-        debug_println!("   their_heads: {:?}", their_heads);
+        //debug_println!(">> branch_sync");
+        //debug_println!("   our_heads: {:?}", our_heads);
+        //debug_println!("   their_heads: {:?}", their_heads);
 
         /// Load `Commit` `Object`s of a `Branch` from the `RepoStore` starting from the given `Object`,
         /// and collect `ObjectId`s starting from `our_heads` towards `their_heads`
@@ -115,12 +115,12 @@ impl Branch {
             visited: &mut HashSet<ObjectId>,
             missing: &mut HashSet<ObjectId>,
         ) -> Result<bool, ObjectParseError> {
-            debug_println!(">>> load_branch: {}", obj.id());
+            //debug_println!(">>> load_branch: {}", obj.id());
             let id = obj.id();
 
             // root has no deps
             let is_root = obj.deps().len() == 0;
-            debug_println!("     deps: {:?}", obj.deps());
+            //debug_println!("     deps: {:?}", obj.deps());
 
             // check if this object is present in their_heads
             let their_head_found = their_heads.contains(&id);
@@ -158,7 +158,7 @@ impl Branch {
             let mut visited = HashSet::new();
             let their_head_found =
                 load_branch(&obj, store, their_heads, &mut visited, &mut missing)?;
-            debug_println!("<<< load_branch: {}", their_head_found);
+            //debug_println!("<<< load_branch: {}", their_head_found);
             ours.extend(visited); // add if one of their_heads found
         }
 
@@ -167,15 +167,15 @@ impl Branch {
             let commit = Object::load(*id, None, store)?;
             let mut visited = HashSet::new();
             let their_head_found = load_branch(&commit, store, &[], &mut visited, &mut missing)?;
-            debug_println!("<<< load_branch: {}", their_head_found);
+            //debug_println!("<<< load_branch: {}", their_head_found);
             theirs.extend(visited); // add if one of their_heads found
         }
 
         let mut result = &ours - &theirs;
 
-        debug_println!("!! ours: {:?}", ours);
-        debug_println!("!! theirs: {:?}", theirs);
-        debug_println!("!! result: {:?}", result);
+        //debug_println!("!! ours: {:?}", ours);
+        //debug_println!("!! theirs: {:?}", theirs);
+        //debug_println!("!! result: {:?}", result);
 
         // remove their_commits from result
         let filter = Filter::from_u8_array(their_filter.f.as_slice(), their_filter.k.into());
@@ -188,7 +188,7 @@ impl Branch {
                 }
             }
         }
-        debug_println!("!! result filtered: {:?}", result);
+        //debug_println!("!! result filtered: {:?}", result);
         Ok(Vec::from_iter(result))
     }
 }
@@ -390,7 +390,7 @@ mod test {
             tags,
             metadata,
         );
-        println!("branch: {:?}", branch);
+        //println!("branch: {:?}", branch);
 
         println!("branch deps/acks:");
         println!("");
@@ -546,7 +546,7 @@ mod test {
         let ids = Branch::sync_req(
             &[a3.id, t5.id, a6.id, a7.id],
             &[a3.id, t5.id],
-            their_commits,
+            &their_commits,
             &store,
         )
         .unwrap();

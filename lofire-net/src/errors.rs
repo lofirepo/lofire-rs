@@ -1,5 +1,6 @@
 use crate::types::BrokerMessage;
 use core::fmt;
+use lofire::object::ObjectParseError;
 use lofire::types::Block;
 use lofire::types::ObjectId;
 use num_enum::IntoPrimitive;
@@ -54,6 +55,12 @@ impl From<lofire::errors::LofireError> for ProtocolError {
             lofire::errors::LofireError::InvalidSignature => ProtocolError::InvalidSignature,
             lofire::errors::LofireError::SerializationError => ProtocolError::SerializationError,
         }
+    }
+}
+
+impl From<ObjectParseError> for ProtocolError {
+    fn from(e: ObjectParseError) -> Self {
+        ProtocolError::ObjectParseError
     }
 }
 

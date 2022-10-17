@@ -108,10 +108,10 @@ async fn main() -> std::io::Result<()> {
         .prefix("node-daemon")
         .tempdir()
         .unwrap();
-    let key: [u8; 32] = [0; 32];
+    let master_key: [u8; 32] = [0; 32];
     std::fs::create_dir_all(root.path()).unwrap();
     println!("{}", root.path().to_str().unwrap());
-    let store = LmdbBrokerStore::open(root.path(), key);
+    let store = LmdbBrokerStore::open(root.path(), master_key);
 
     let server: BrokerServer =
         BrokerServer::new(store, ConfigMode::Local).expect("starting broker");

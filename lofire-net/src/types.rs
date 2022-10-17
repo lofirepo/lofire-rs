@@ -346,6 +346,24 @@ pub enum BranchSyncReq {
     V0(BranchSyncReqV0),
 }
 
+impl BranchSyncReq {
+    pub fn heads(&self) -> &Vec<ObjectId> {
+        match self {
+            BranchSyncReq::V0(o) => &o.heads,
+        }
+    }
+    pub fn known_heads(&self) -> &Vec<ObjectId> {
+        match self {
+            BranchSyncReq::V0(o) => &o.known_heads,
+        }
+    }
+    pub fn known_commits(&self) -> &BloomFilter {
+        match self {
+            BranchSyncReq::V0(o) => &o.known_commits,
+        }
+    }
+}
+
 /// Events the requestor needs, see EventReqV0
 #[derive(Clone, Copy, Debug, Serialize, Deserialize)]
 pub struct NeedEventsV0 {

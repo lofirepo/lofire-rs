@@ -2,7 +2,11 @@
 
 use crate::types::*;
 
-use std::{cmp::min, collections::HashMap, mem::size_of_val};
+use std::{
+    cmp::min,
+    collections::{hash_map::Iter, HashMap},
+    mem::size_of_val,
+};
 
 pub trait RepoStore {
     /// Load a block from the store.
@@ -85,6 +89,10 @@ impl HashMapRepoStore {
         HashMapRepoStore {
             blocks: HashMap::new(),
         }
+    }
+
+    pub fn get_all(&self) -> Iter<BlockId, Block> {
+        self.blocks.iter()
     }
 }
 

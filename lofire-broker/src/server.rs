@@ -145,7 +145,8 @@ impl ProtocolHandler {
                     .broker_protocol
                     .as_ref()
                     .unwrap()
-                    .handle_incoming(message);
+                    .handle_incoming(message)
+                    .await;
                 (Ok(serde_bare::to_vec(&reply.0).unwrap()), reply.1)
             }
             ProtocolType::Ext => {
@@ -259,7 +260,71 @@ impl BrokerProtocolHandler {
         msg
     }
 
-    pub fn handle_incoming(
+    async fn send_block_stream_response_to_client(
+        &self,
+        res: Result<async_channel::Receiver<Block>, ProtocolError>,
+        id: u64,
+        overlay: OverlayId,
+        padding_size: usize,
+    ) -> (BrokerMessage, OptionFuture<BoxFuture<'static, u16>>) {
+        // return an error or the first block, and setup a spawner for the remaining blocks to be sent.
+        let one_reply: (
+            Result<Block, ProtocolError>,
+            OptionFuture<BoxFuture<'static, u16>>,
+        ) = match res {
+            Err(e) => (Err(e), OptionFuture::from(None)),
+            Ok(stream) => {
+                let one = stream
+                    .recv_blocking()
+                    .map_err(|e| ProtocolError::EndOfStream);
+
+                if one.is_ok() {
+                    let sender = self.async_frames_sender.clone();
+                    let a = OptionFuture::from(Some(
+                        async move {
+                            while let Ok(next) = stream.recv().await {
+                                let msg = Self::prepare_reply_broker_overlay_message_stream(
+                                    Ok(next),
+                                    id,
+                                    overlay,
+                                    padding_size,
+                                );
+                                let res = sender.send(serde_bare::to_vec(&msg).unwrap()).await;
+                                if res.is_err() {
+                                    break;
+                                }
+                            }
+                            // sending end of stream
+                            let msg = Self::prepare_reply_broker_overlay_message_stream(
+                                Err(ProtocolError::EndOfStream),
+                                id,
+                                overlay,
+                                padding_size,
+                            );
+                            let _ = sender.send(serde_bare::to_vec(&msg).unwrap()).await;
+                            0
+                        }
+                        .boxed(),
+                    ));
+                    (one, a)
+                } else {
+                    (one, OptionFuture::from(None))
+                }
+            }
+        };
+        //std::thread::sleep(std::time::Duration::from_secs(4));
+        return (
+            Self::prepare_reply_broker_overlay_message_stream(
+                one_reply.0,
+                id,
+                overlay,
+                padding_size,
+            ),
+            one_reply.1,
+        );
+    }
+
+    pub async fn handle_incoming(
         &self,
         msg: BrokerMessage,
     ) -> (BrokerMessage, OptionFuture<BoxFuture<'static, u16>>) {
@@ -307,10 +372,10 @@ impl BrokerProtocolHandler {
                 if omsg.is_request() {
                     match omsg.overlay_request().content_v0() {
                         BrokerOverlayRequestContentV0::OverlayConnect(_) => {
-                            res = self.broker.overlay_connect(self.user, overlay)
+                            res = self.broker.connect_overlay(self.user, overlay)
                         }
                         BrokerOverlayRequestContentV0::OverlayJoin(j) => {
-                            res = self.broker.overlay_join(
+                            res = self.broker.join_overlay(
                                 self.user,
                                 overlay,
                                 j.repo_pubkey(),
@@ -328,74 +393,41 @@ impl BrokerProtocolHandler {
                             res = self.broker.unpin_object(self.user, overlay, op.id())
                         }
                         BrokerOverlayRequestContentV0::BlockPut(b) => {
-                            res = self.broker.block_put(self.user, overlay, b.block())
+                            res = self.broker.put_block(self.user, overlay, b.block())
                         }
-                        // TODO BranchSyncReq
+                        BrokerOverlayRequestContentV0::BranchSyncReq(b) => {
+                            let res = self.broker.sync_branch(
+                                self.user,
+                                &overlay,
+                                b.heads(),
+                                b.known_heads(),
+                                b.known_commits(),
+                            );
+                            return self
+                                .send_block_stream_response_to_client(
+                                    res,
+                                    id,
+                                    overlay,
+                                    padding_size,
+                                )
+                                .await;
+                        }
                         BrokerOverlayRequestContentV0::BlockGet(b) => {
-                            let res = self.broker.block_get(
+                            let res = self.broker.get_block(
                                 self.user,
                                 overlay,
                                 b.id(),
                                 b.include_children(),
                                 b.topic(),
                             );
-                            // return an error or the first block, and setup a spawner for the remaining blocks to be sent.
-                            let one_reply: (
-                                Result<Block, ProtocolError>,
-                                OptionFuture<BoxFuture<'static, u16>>,
-                            ) = match res {
-                                Err(e) => (Err(e), OptionFuture::from(None)),
-                                Ok(stream) => {
-                                    let one = stream
-                                        .recv_blocking()
-                                        .map_err(|e| ProtocolError::EndOfStream);
-
-                                    if one.is_ok() {
-                                        let sender = self.async_frames_sender.clone();
-                                        let a = OptionFuture::from(Some(async move {
-                                            while let Ok(next) = stream.recv().await {
-                                                let msg= Self::prepare_reply_broker_overlay_message_stream(
-                                                        Ok(next),
-                                                        id,
-                                                        overlay,
-                                                        padding_size,
-                                                    );
-                                                let res = sender
-                                                    .send(serde_bare::to_vec(&msg).unwrap())
-                                                    .await;
-                                                if res.is_err() {
-                                                    break;
-                                                }
-                                            }
-                                            // sending end of stream
-                                            let msg =
-                                                Self::prepare_reply_broker_overlay_message_stream(
-                                                    Err(ProtocolError::EndOfStream),
-                                                    id,
-                                                    overlay,
-                                                    padding_size,
-                                                );
-                                            let _ = sender
-                                                .send(serde_bare::to_vec(&msg).unwrap())
-                                                .await;
-                                            0
-                                        }.boxed()));
-                                        (one, a)
-                                    } else {
-                                        (one, OptionFuture::from(None))
-                                    }
-                                }
-                            };
-                            //std::thread::sleep(std::time::Duration::from_secs(4));
-                            return (
-                                Self::prepare_reply_broker_overlay_message_stream(
-                                    one_reply.0,
+                            return self
+                                .send_block_stream_response_to_client(
+                                    res,
                                     id,
                                     overlay,
                                     padding_size,
-                                ),
-                                one_reply.1,
-                            );
+                                )
+                                .await;
                         }
                         _ => {}
                     }
@@ -598,7 +630,7 @@ impl BrokerServer {
         Ok(())
     }
 
-    pub fn overlay_connect(&self, user: PubKey, overlay: OverlayId) -> Result<(), ProtocolError> {
+    pub fn connect_overlay(&self, user: PubKey, overlay: OverlayId) -> Result<(), ProtocolError> {
         // TODO check that the broker has already joined this overlay. if not, send OverlayNotJoined
         Err(ProtocolError::OverlayNotJoined)
     }
@@ -693,7 +725,7 @@ impl BrokerServer {
         todo!();
     }
 
-    pub fn block_put(
+    pub fn put_block(
         &self,
         user: PubKey,
         overlay: OverlayId,
@@ -705,7 +737,7 @@ impl BrokerServer {
         })
     }
 
-    pub fn block_get(
+    pub fn get_block(
         &self,
         user: PubKey,
         overlay: OverlayId,
@@ -730,7 +762,7 @@ impl BrokerServer {
                 // todo, use a task to send non blocking (streaming)
                 let o = obj.ok().unwrap();
                 //debug_println!("{} BLOCKS ", o.blocks().len());
-                let mut deduplicated: HashSet<ObjectId> = HashSet::new();
+                let mut deduplicated: HashSet<BlockId> = HashSet::new();
                 for block in o.blocks() {
                     let id = block.id();
                     if deduplicated.get(&id).is_none() {
@@ -744,6 +776,45 @@ impl BrokerServer {
         })
     }
 
+    pub fn sync_branch(
+        &self,
+        user: PubKey,
+        overlay: &OverlayId,
+        heads: &Vec<ObjectId>,
+        known_heads: &Vec<ObjectId>,
+        known_commits: &BloomFilter,
+    ) -> Result<async_channel::Receiver<Block>, ProtocolError> {
+        //debug_println!("heads {:?}", heads);
+        //debug_println!("known_heads {:?}", known_heads);
+        //debug_println!("known_commits {:?}", known_commits);
+
+        self.get_repostore_from_overlay_id(&overlay, |store| {
+            let (s, r) = async_channel::unbounded::<Block>();
+
+            let res = Branch::sync_req(heads, known_heads, known_commits, store)
+                .map_err(|e| ProtocolError::ObjectParseError)?;
+
+            // todo, use a task to send non blocking (streaming)
+            debug_println!("SYNCING {} COMMITS", res.len());
+
+            let mut deduplicated: HashSet<BlockId> = HashSet::new();
+
+            for objectid in res {
+                let object = Object::load(objectid, None, store)?;
+
+                for block in object.blocks() {
+                    let id = block.id();
+                    if deduplicated.get(&id).is_none() {
+                        s.send_blocking(block.clone())
+                            .map_err(|_e| ProtocolError::CannotSend)?;
+                        deduplicated.insert(id);
+                    }
+                }
+            }
+            Ok(r)
+        })
+    }
+
     fn compute_repostore_id(&self, overlay: OverlayId, repo_id: Option<PubKey>) -> RepoStoreId {
         match self.mode {
             ConfigMode::Core => RepoStoreId::Overlay(overlay),
@@ -751,7 +822,7 @@ impl BrokerServer {
         }
     }
 
-    pub fn overlay_join(
+    pub fn join_overlay(
         &self,
         user: PubKey,
         overlay_id: OverlayId,

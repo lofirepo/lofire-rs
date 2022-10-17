@@ -260,7 +260,7 @@ impl Commit {
 
     /// Verify if the commit's `body` and dependencies (`deps` & `acks`) are available in the `store`
     pub fn verify_deps(&self, store: &impl RepoStore) -> Result<Vec<ObjectId>, CommitLoadError> {
-        debug_println!(">> verify_deps: #{}", self.seq());
+        //debug_println!(">> verify_deps: #{}", self.seq());
         /// Load `Commit`s of a `Branch` from the `RepoStore` starting from the given `Commit`,
         /// and collect missing `ObjectId`s
         fn load_branch(
@@ -269,7 +269,7 @@ impl Commit {
             visited: &mut HashSet<ObjectId>,
             missing: &mut HashSet<ObjectId>,
         ) -> Result<(), CommitLoadError> {
-            debug_println!(">>> load_branch: #{}", commit.seq());
+            //debug_println!(">>> load_branch: #{}", commit.seq());
             // the commit verify_deps() was called on may not have an ID set,
             // but the commits loaded from store should have it
             match commit.id() {
@@ -404,9 +404,9 @@ mod test {
             tags,
             metadata,
         );
-        println!("branch: {:?}", branch);
+        //println!("branch: {:?}", branch);
         let body = CommitBody::Ack(Ack::V0());
-        println!("body: {:?}", body);
+        //println!("body: {:?}", body);
 
         match commit.load_body(&store) {
             Ok(_b) => panic!("Body should not exist"),
