@@ -4,7 +4,7 @@ jobs:
   cargo-build-test:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v2
+      - uses: actions/checkout@v3
       - uses: nixbuild/nix-quick-install-action@v17
         with:
           nix_conf: experimental-features = nix-command flakes
@@ -15,27 +15,10 @@ jobs:
       - name: cargo test
         run: cargo test
 
-  cargo-doc:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v2
-      - uses: nixbuild/nix-quick-install-action@v17
-        with:
-          nix_conf: experimental-features = nix-command flakes
-      - name: nix develop
-        run: nix develop
-      - name: cargo doc
-        run: cargo doc --no-deps
-      - name: upload doc
-        uses: actions/upload-artifact@v3
-        with:
-          name: cargo-doc
-          path: target/doc
-
   default-package:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v2
+      - uses: actions/checkout@v3
       - uses: nixbuild/nix-quick-install-action@v17
         with:
           nix_conf: experimental-features = nix-command flakes
@@ -45,7 +28,7 @@ jobs:
   lofire-package:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v2
+      - uses: actions/checkout@v3
       - uses: nixbuild/nix-quick-install-action@v17
         with:
           nix_conf: experimental-features = nix-command flakes
@@ -55,7 +38,7 @@ jobs:
   lofire-broker-package:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v2
+      - uses: actions/checkout@v3
       - uses: nixbuild/nix-quick-install-action@v17
         with:
           nix_conf: experimental-features = nix-command flakes
@@ -65,7 +48,7 @@ jobs:
   lofire-p2p-package:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v2
+      - uses: actions/checkout@v3
       - uses: nixbuild/nix-quick-install-action@v17
         with:
           nix_conf: experimental-features = nix-command flakes
@@ -75,7 +58,7 @@ jobs:
   lofire-node-package:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v2
+      - uses: actions/checkout@v3
       - uses: nixbuild/nix-quick-install-action@v17
         with:
           nix_conf: experimental-features = nix-command flakes
@@ -85,7 +68,7 @@ jobs:
   lofire-demo-package:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v2
+      - uses: actions/checkout@v3
       - uses: nixbuild/nix-quick-install-action@v17
         with:
           nix_conf: experimental-features = nix-command flakes
