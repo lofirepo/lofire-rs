@@ -13,8 +13,7 @@ ed25519-dalek = "1.0.1"
 rand = "0.7"
 serde = { version = "1.0.142", features = ["derive"] }
 serde_bare = "0.5.0"
-tempfile = "3"
-rkv = { git = "https://github.com/p2pcollab/rkv.git", branch = "main", features = ["lmdb"] }
 serde_bytes = "0.11.7"
 fastbloom-rs = "0.3.1"
 debug_print = "1.0.0"
+hex = "0.4.3"

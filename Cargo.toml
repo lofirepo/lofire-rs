@@ -4,6 +4,7 @@ members = [
   "lofire-net",
   "lofire-broker",
   "lofire-p2p",
+  "lofire-store-lmdb",
   "lofire-node",
   "lofire-demo",
 ]

@@ -30,6 +30,12 @@ pub type SessionId = u64;
 /// Topic ID: public key of the topic
 pub type TopicId = PubKey;
 
+/// User ID: user account for broker
+pub type UserId = PubKey;
+
+/// Client ID: client of a user
+pub type ClientId = PubKey;
+
 /// IPv4 address
 pub type IPv4 = [u8; 4];
 
@@ -204,12 +210,11 @@ pub struct EventContentV0 {
     /// Pub/sub topic
     pub topic: TopicId,
 
-    /// Publisher pubkey hash
-    /// BLAKE3 keyed hash over branch member pubkey
-    /// - key: BLAKE3 derive_key ("LoFiRe Event publisher BLAKE3 key",
+    /// Publisher pubkey encrypted with ChaCha20:
+    /// - key: BLAKE3 derive_key ("LoFiRe Event Publisher ChaCha20 key",
     ///                           repo_pubkey + repo_secret +
     ///                           branch_pubkey + branch_secret)
-    pub publisher: Digest,
+    pub publisher: [u8; 32], // PubKey
 
     /// Commit sequence number of publisher
     pub seq: u32,
@@ -341,6 +346,24 @@ pub enum BranchSyncReq {
     V0(BranchSyncReqV0),
 }
 
+impl BranchSyncReq {
+    pub fn heads(&self) -> &Vec<ObjectId> {
+        match self {
+            BranchSyncReq::V0(o) => &o.heads,
+        }
+    }
+    pub fn known_heads(&self) -> &Vec<ObjectId> {
+        match self {
+            BranchSyncReq::V0(o) => &o.known_heads,
+        }
+    }
+    pub fn known_commits(&self) -> &BloomFilter {
+        match self {
+            BranchSyncReq::V0(o) => &o.known_commits,
+        }
+    }
+}
+
 /// Events the requestor needs, see EventReqV0
 #[derive(Clone, Copy, Debug, Serialize, Deserialize)]
 pub struct NeedEventsV0 {
@@ -463,7 +486,7 @@ pub struct PeerAdvertContentV0 {
     pub address: Vec<NetAddr>,
 
     /// Version number
-    pub version: u16,
+    pub version: u32,
 
     /// App-specific metadata (profile, cryptographic material, etc)
     #[serde(with = "serde_bytes")]
@@ -491,6 +514,19 @@ pub enum PeerAdvert {
     V0(PeerAdvertV0),
 }
 
+impl PeerAdvert {
+    pub fn version(&self) -> u32 {
+        match self {
+            PeerAdvert::V0(o) => o.content.version,
+        }
+    }
+    pub fn peer(&self) -> &PeerId {
+        match self {
+            PeerAdvert::V0(o) => &o.content.peer,
+        }
+    }
+}
+
 /// Content of OverlayMessagePaddedV0
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub enum OverlayMessageContentV0 {
@@ -503,9 +539,9 @@ pub enum OverlayMessageContentV0 {
     UnsubReq(UnsubReq),
     UnsubAck(UnsubAck),
     Event(Event),
-    ObjectSearchTopic(BlockSearchTopic),
-    ObjectSearchRandom(BlockSearchRandom),
-    ObjectResult(BlockResult),
+    BlockSearchTopic(BlockSearchTopic),
+    BlockSearchRandom(BlockSearchRandom),
+    BlockResult(BlockResult),
     OverlayRequest(OverlayRequest),
     OverlayResponse(OverlayResponse),
 }
@@ -575,6 +611,25 @@ pub struct AddUserV0 {
 pub enum AddUser {
     V0(AddUserV0),
 }
+
+impl AddUser {
+    pub fn content_v0(&self) -> AddUserContentV0 {
+        match self {
+            AddUser::V0(o) => o.content,
+        }
+    }
+    pub fn sig(&self) -> Sig {
+        match self {
+            AddUser::V0(o) => o.sig,
+        }
+    }
+    pub fn user(&self) -> PubKey {
+        match self {
+            AddUser::V0(o) => o.content.user,
+        }
+    }
+}
+
 /// Content of DelUserV0
 #[derive(Clone, Copy, Debug, Serialize, Deserialize)]
 pub struct DelUserContentV0 {
@@ -597,6 +652,24 @@ pub enum DelUser {
     V0(DelUserV0),
 }
 
+impl DelUser {
+    pub fn content_v0(&self) -> DelUserContentV0 {
+        match self {
+            DelUser::V0(o) => o.content,
+        }
+    }
+    pub fn sig(&self) -> Sig {
+        match self {
+            DelUser::V0(o) => o.sig,
+        }
+    }
+    pub fn user(&self) -> PubKey {
+        match self {
+            DelUser::V0(o) => o.content.user,
+        }
+    }
+}
+
 /// Content of `AddClientV0`
 #[derive(Clone, Copy, Debug, Serialize, Deserialize)]
 pub struct AddClientContentV0 {
@@ -616,6 +689,24 @@ pub struct AddClientV0 {
 #[derive(Clone, Copy, Debug, Serialize, Deserialize)]
 pub enum AddClient {
     V0(AddClientV0),
+}
+
+impl AddClient {
+    pub fn content_v0(&self) -> AddClientContentV0 {
+        match self {
+            AddClient::V0(o) => o.content,
+        }
+    }
+    pub fn sig(&self) -> Sig {
+        match self {
+            AddClient::V0(o) => o.sig,
+        }
+    }
+    pub fn client(&self) -> PubKey {
+        match self {
+            AddClient::V0(o) => o.content.client,
+        }
+    }
 }
 
 /// Content of `DelClientV0`
@@ -640,9 +731,32 @@ pub enum DelClient {
     V0(DelClientV0),
 }
 
+impl DelClient {
+    pub fn content_v0(&self) -> DelClientContentV0 {
+        match self {
+            DelClient::V0(o) => o.content,
+        }
+    }
+    pub fn sig(&self) -> Sig {
+        match self {
+            DelClient::V0(o) => o.sig,
+        }
+    }
+    pub fn client(&self) -> PubKey {
+        match self {
+            DelClient::V0(o) => o.content.client,
+        }
+    }
+}
+
 /// Content of `BrokerRequestV0`
 #[derive(Clone, Debug, Serialize, Deserialize)]
-pub enum BrokerRequestContentV0 {}
+pub enum BrokerRequestContentV0 {
+    AddUser(AddUser),
+    DelUser(DelUser),
+    AddClient(AddClient),
+    DelClient(DelClient),
+}
 /// Broker request
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct BrokerRequestV0 {
@@ -657,6 +771,19 @@ pub struct BrokerRequestV0 {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub enum BrokerRequest {
     V0(BrokerRequestV0),
+}
+
+impl BrokerRequest {
+    pub fn id(&self) -> u64 {
+        match self {
+            BrokerRequest::V0(o) => o.id,
+        }
+    }
+    pub fn content_v0(&self) -> BrokerRequestContentV0 {
+        match self {
+            BrokerRequest::V0(o) => o.content.clone(),
+        }
+    }
 }
 
 /// Response to a `BrokerRequest`
@@ -675,11 +802,28 @@ pub enum BrokerResponse {
     V0(BrokerResponseV0),
 }
 
+impl BrokerResponse {
+    pub fn id(&self) -> u64 {
+        match self {
+            BrokerResponse::V0(o) => o.id,
+        }
+    }
+    pub fn result(&self) -> u16 {
+        match self {
+            BrokerResponse::V0(o) => o.result,
+        }
+    }
+}
+
 /// Request to join an overlay
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct OverlayJoinV0 {
     /// Overlay secret
     pub secret: SymKey,
+
+    /// Repository the overlay belongs to.
+    /// Only set for local brokers.
+    pub repo_pubkey: Option<PubKey>,
 
     /// Peers to connect to
     pub peers: Vec<PeerAdvert>,
@@ -691,17 +835,57 @@ pub enum OverlayJoin {
     V0(OverlayJoinV0),
 }
 
+impl OverlayJoin {
+    pub fn repo_pubkey(&self) -> Option<PubKey> {
+        match self {
+            OverlayJoin::V0(o) => o.repo_pubkey,
+        }
+    }
+    pub fn secret(&self) -> SymKey {
+        match self {
+            OverlayJoin::V0(o) => o.secret,
+        }
+    }
+    pub fn peers(&self) -> &Vec<PeerAdvert> {
+        match self {
+            OverlayJoin::V0(o) => &o.peers,
+        }
+    }
+}
+
 /// Request to leave an overlay
 #[derive(Clone, Copy, Debug, Serialize, Deserialize)]
 pub enum OverlayLeave {
     V0(),
 }
 
+/// Overlay status request
+#[derive(Clone, Copy, Debug, Serialize, Deserialize)]
+pub enum OverlayStatusReq {
+    V0(),
+}
+
+/// Overlay status response
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct OverlayStatusRespV0 {
+    /// Whether or not the broker has joined the overlay
+    pub joined: bool,
+
+    /// List of peers currently connected in the overlay
+    pub peers: Vec<PeerAdvert>,
+}
+
+/// Overlay status response
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub enum OverlayStatusResp {
+    V0(OverlayStatusRespV0),
+}
+
 /// Request a Block by ID
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct BlockGetV0 {
-    /// List of Block IDs to request
-    pub ids: Vec<BlockId>,
+    /// Block ID to request
+    pub id: BlockId,
 
     /// Whether or not to include all children recursively
     pub include_children: bool,
@@ -716,10 +900,36 @@ pub enum BlockGet {
     V0(BlockGetV0),
 }
 
+impl BlockGet {
+    pub fn id(&self) -> BlockId {
+        match self {
+            BlockGet::V0(o) => o.id,
+        }
+    }
+    pub fn include_children(&self) -> bool {
+        match self {
+            BlockGet::V0(o) => o.include_children,
+        }
+    }
+    pub fn topic(&self) -> Option<PubKey> {
+        match self {
+            BlockGet::V0(o) => o.topic,
+        }
+    }
+}
+
 /// Request to store an object
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub enum BlockPut {
     V0(Block),
+}
+
+impl BlockPut {
+    pub fn block(&self) -> &Block {
+        match self {
+            BlockPut::V0(o) => &o,
+        }
+    }
 }
 
 /// Request to pin an object
@@ -738,7 +948,15 @@ pub struct ObjectPinV0 {
 /// Request to pin an object
 #[derive(Clone, Copy, Debug, Serialize, Deserialize)]
 pub enum ObjectPin {
-    ObjectPinV0,
+    V0(ObjectPinV0),
+}
+
+impl ObjectPin {
+    pub fn id(&self) -> ObjectId {
+        match self {
+            ObjectPin::V0(o) => o.id,
+        }
+    }
 }
 
 /// Request to unpin an object
@@ -751,6 +969,14 @@ pub struct ObjectUnpinV0 {
 #[derive(Clone, Copy, Debug, Serialize, Deserialize)]
 pub enum ObjectUnpin {
     V0(ObjectUnpinV0),
+}
+
+impl ObjectUnpin {
+    pub fn id(&self) -> ObjectId {
+        match self {
+            ObjectUnpin::V0(o) => o.id,
+        }
+    }
 }
 
 /// Request to copy an object with a different expiry time
@@ -769,6 +995,19 @@ pub enum ObjectCopy {
     V0(ObjectCopyV0),
 }
 
+impl ObjectCopy {
+    pub fn id(&self) -> ObjectId {
+        match self {
+            ObjectCopy::V0(o) => o.id,
+        }
+    }
+    pub fn expiry(&self) -> Option<Timestamp> {
+        match self {
+            ObjectCopy::V0(o) => o.expiry,
+        }
+    }
+}
+
 /// Request to delete an object
 #[derive(Clone, Copy, Debug, Serialize, Deserialize)]
 pub struct ObjectDelV0 {
@@ -781,13 +1020,21 @@ pub enum ObjectDel {
     V0(ObjectDelV0),
 }
 
+impl ObjectDel {
+    pub fn id(&self) -> ObjectId {
+        match self {
+            ObjectDel::V0(o) => o.id,
+        }
+    }
+}
+
 /// Request subscription to a `Topic`
 #[derive(Clone, Copy, Debug, Serialize, Deserialize)]
 pub struct TopicSubV0 {
     /// Topic to subscribe
     pub topic: PubKey,
 
-    /// Publisher need to prived a signed `TopicAdvert` for the PeerId of the broker
+    /// Publisher need to provide a signed `TopicAdvert` for the PeerId of the broker
     pub advert: Option<TopicAdvert>,
 }
 
@@ -839,6 +1086,8 @@ pub enum TopicDisconnect {
 /// Content of `BrokerOverlayRequestV0`
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub enum BrokerOverlayRequestContentV0 {
+    OverlayConnect(OverlayConnect), // FIXME remove
+    OverlayStatusReq(OverlayStatusReq),
     OverlayJoin(OverlayJoin),
     OverlayLeave(OverlayLeave),
     TopicSub(TopicSub),
@@ -846,8 +1095,8 @@ pub enum BrokerOverlayRequestContentV0 {
     TopicConnect(TopicConnect),
     TopicDisconnect(TopicDisconnect),
     Event(Event),
-    ObjectGet(BlockGet),
-    ObjectPut(BlockPut),
+    BlockGet(BlockGet),
+    BlockPut(BlockPut),
     ObjectPin(ObjectPin),
     ObjectUnpin(ObjectUnpin),
     ObjectCopy(ObjectCopy),
@@ -871,10 +1120,25 @@ pub enum BrokerOverlayRequest {
     V0(BrokerOverlayRequestV0),
 }
 
+impl BrokerOverlayRequest {
+    pub fn id(&self) -> u64 {
+        match self {
+            BrokerOverlayRequest::V0(o) => o.id,
+        }
+    }
+    pub fn content_v0(&self) -> &BrokerOverlayRequestContentV0 {
+        match self {
+            BrokerOverlayRequest::V0(o) => &o.content,
+        }
+    }
+}
+
 /// Content of `BrokerOverlayResponseV0`
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub enum BrokerOverlayResponseContentV0 {
     Block(Block),
+    ObjectId(ObjectId),
+    OverlayStatusResp(OverlayStatusResp),
 }
 
 /// Response to a `BrokerOverlayRequest`
@@ -894,6 +1158,41 @@ pub struct BrokerOverlayResponseV0 {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub enum BrokerOverlayResponse {
     V0(BrokerOverlayResponseV0),
+}
+
+impl BrokerOverlayResponse {
+    pub fn id(&self) -> u64 {
+        match self {
+            BrokerOverlayResponse::V0(o) => o.id,
+        }
+    }
+    pub fn result(&self) -> u16 {
+        match self {
+            BrokerOverlayResponse::V0(o) => o.result,
+        }
+    }
+    pub fn block(&self) -> Option<&Block> {
+        match self {
+            BrokerOverlayResponse::V0(o) => match &o.content {
+                Some(contentv0) => match contentv0 {
+                    BrokerOverlayResponseContentV0::Block(b) => Some(b),
+                    _ => panic!("this not a block reponse"),
+                },
+                None => None,
+            },
+        }
+    }
+    pub fn object_id(&self) -> ObjectId {
+        match self {
+            BrokerOverlayResponse::V0(o) => match &o.content {
+                Some(contentv0) => match contentv0 {
+                    BrokerOverlayResponseContentV0::ObjectId(id) => id.clone(),
+                    _ => panic!("this not an objectId reponse"),
+                },
+                None => panic!("this not an objectId reponse (doesnt have content)"),
+            },
+        }
+    }
 }
 
 /// Content of `BrokerOverlayMessageV0`
@@ -916,6 +1215,93 @@ pub enum BrokerOverlayMessage {
     V0(BrokerOverlayMessageV0),
 }
 
+impl BrokerOverlayMessage {
+    pub fn content_v0(&self) -> &BrokerOverlayMessageContentV0 {
+        match self {
+            BrokerOverlayMessage::V0(o) => &o.content,
+        }
+    }
+    pub fn overlay_request(&self) -> &BrokerOverlayRequest {
+        match self {
+            BrokerOverlayMessage::V0(o) => match &o.content {
+                BrokerOverlayMessageContentV0::BrokerOverlayRequest(r) => &r,
+                _ => panic!("not an overlay request"),
+            },
+        }
+    }
+    pub fn overlay_id(&self) -> OverlayId {
+        match self {
+            BrokerOverlayMessage::V0(o) => o.overlay,
+        }
+    }
+    pub fn is_request(&self) -> bool {
+        match self {
+            BrokerOverlayMessage::V0(o) => matches!(
+                o.content,
+                BrokerOverlayMessageContentV0::BrokerOverlayRequest { .. }
+            ),
+        }
+    }
+    pub fn is_response(&self) -> bool {
+        match self {
+            BrokerOverlayMessage::V0(o) => matches!(
+                o.content,
+                BrokerOverlayMessageContentV0::BrokerOverlayResponse { .. }
+            ),
+        }
+    }
+    pub fn id(&self) -> u64 {
+        match self {
+            BrokerOverlayMessage::V0(o) => match &o.content {
+                BrokerOverlayMessageContentV0::BrokerOverlayResponse(r) => r.id(),
+                BrokerOverlayMessageContentV0::BrokerOverlayRequest(r) => r.id(),
+                BrokerOverlayMessageContentV0::Event(_) => {
+                    panic!("it is an event")
+                }
+            },
+        }
+    }
+    pub fn result(&self) -> u16 {
+        match self {
+            BrokerOverlayMessage::V0(o) => match &o.content {
+                BrokerOverlayMessageContentV0::BrokerOverlayResponse(r) => r.result(),
+                BrokerOverlayMessageContentV0::BrokerOverlayRequest(r) => {
+                    panic!("it is not a response");
+                }
+                BrokerOverlayMessageContentV0::Event(_) => {
+                    panic!("it is not a response");
+                }
+            },
+        }
+    }
+    pub fn block<'a>(&self) -> Option<&Block> {
+        match self {
+            BrokerOverlayMessage::V0(o) => match &o.content {
+                BrokerOverlayMessageContentV0::BrokerOverlayResponse(r) => r.block(),
+                BrokerOverlayMessageContentV0::BrokerOverlayRequest(r) => {
+                    panic!("it is not a response");
+                }
+                BrokerOverlayMessageContentV0::Event(_) => {
+                    panic!("it is not a response");
+                }
+            },
+        }
+    }
+    pub fn object_id<'a>(&self) -> ObjectId {
+        match self {
+            BrokerOverlayMessage::V0(o) => match &o.content {
+                BrokerOverlayMessageContentV0::BrokerOverlayResponse(r) => r.object_id(),
+                BrokerOverlayMessageContentV0::BrokerOverlayRequest(r) => {
+                    panic!("it is not a response");
+                }
+                BrokerOverlayMessageContentV0::Event(_) => {
+                    panic!("it is not a response");
+                }
+            },
+        }
+    }
+}
+
 /// Content of BrokerMessageV0
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub enum BrokerMessageContentV0 {
@@ -933,6 +1319,110 @@ pub struct BrokerMessageV0 {
     /// Optional padding
     #[serde(with = "serde_bytes")]
     pub padding: Vec<u8>,
+}
+
+/// Broker message
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub enum BrokerMessage {
+    V0(BrokerMessageV0),
+    Close,
+}
+
+impl BrokerMessage {
+    pub fn is_close(&self) -> bool {
+        match self {
+            BrokerMessage::V0(o) => false,
+            BrokerMessage::Close => true,
+        }
+    }
+    /// Get the content
+    pub fn content(&self) -> BrokerMessageContentV0 {
+        match self {
+            BrokerMessage::V0(o) => o.content.clone(),
+            BrokerMessage::Close => panic!("Close not implemented"),
+        }
+    }
+    pub fn is_request(&self) -> bool {
+        match self {
+            BrokerMessage::V0(o) => match &o.content {
+                BrokerMessageContentV0::BrokerOverlayMessage(p) => p.is_request(),
+                BrokerMessageContentV0::BrokerResponse(_) => false,
+                BrokerMessageContentV0::BrokerRequest(_) => true,
+            },
+            BrokerMessage::Close => panic!("Close not implemented"),
+        }
+    }
+    pub fn is_response(&self) -> bool {
+        match self {
+            BrokerMessage::V0(o) => match &o.content {
+                BrokerMessageContentV0::BrokerOverlayMessage(p) => p.is_response(),
+                BrokerMessageContentV0::BrokerResponse(_) => true,
+                BrokerMessageContentV0::BrokerRequest(_) => false,
+            },
+            BrokerMessage::Close => panic!("Close not implemented"),
+        }
+    }
+    pub fn id(&self) -> u64 {
+        match self {
+            BrokerMessage::V0(o) => match &o.content {
+                BrokerMessageContentV0::BrokerOverlayMessage(p) => p.id(),
+                BrokerMessageContentV0::BrokerResponse(r) => r.id(),
+                BrokerMessageContentV0::BrokerRequest(r) => r.id(),
+            },
+            BrokerMessage::Close => panic!("Close not implemented"),
+        }
+    }
+    pub fn result(&self) -> u16 {
+        match self {
+            BrokerMessage::V0(o) => match &o.content {
+                BrokerMessageContentV0::BrokerOverlayMessage(p) => p.result(),
+                BrokerMessageContentV0::BrokerResponse(r) => r.result(),
+                BrokerMessageContentV0::BrokerRequest(_) => {
+                    panic!("it is not a response");
+                }
+            },
+            BrokerMessage::Close => panic!("Close not implemented"),
+        }
+    }
+    pub fn is_overlay(&self) -> bool {
+        match self {
+            BrokerMessage::V0(o) => match &o.content {
+                BrokerMessageContentV0::BrokerOverlayMessage(p) => true,
+                BrokerMessageContentV0::BrokerResponse(r) => false,
+                BrokerMessageContentV0::BrokerRequest(r) => false,
+            },
+            BrokerMessage::Close => panic!("Close not implemented"),
+        }
+    }
+    pub fn response_block(&self) -> Option<&Block> {
+        match self {
+            BrokerMessage::V0(o) => match &o.content {
+                BrokerMessageContentV0::BrokerOverlayMessage(p) => p.block(),
+                BrokerMessageContentV0::BrokerResponse(r) => {
+                    panic!("it doesn't have a response block. it is not an overlay response");
+                }
+                BrokerMessageContentV0::BrokerRequest(_) => {
+                    panic!("it is not a response");
+                }
+            },
+            BrokerMessage::Close => panic!("Close not implemented"),
+        }
+    }
+
+    pub fn response_object_id(&self) -> ObjectId {
+        match self {
+            BrokerMessage::V0(o) => match &o.content {
+                BrokerMessageContentV0::BrokerOverlayMessage(p) => p.object_id(),
+                BrokerMessageContentV0::BrokerResponse(r) => {
+                    panic!("it doesn't have a response ObjectId. it is not an overlay response");
+                }
+                BrokerMessageContentV0::BrokerRequest(_) => {
+                    panic!("it is not a response");
+                }
+            },
+            BrokerMessage::Close => panic!("Close not implemented"),
+        }
+    }
 }
 
 //
@@ -1035,18 +1525,16 @@ pub enum ExtResponse {
 ///
 
 /// Client Hello
-pub type ClientHelloV0 = ();
-
-/// Client Hello
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub enum ClientHello {
-    V0(ClientHelloV0),
+    V0(),
 }
 
-/// Initiate connection - choose broker or ext protocol
+/// Start chosen protocol
 /// First message sent by the client
-pub enum InitConnection {
-    Broker(ClientHello),
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub enum StartProtocol {
+    Auth(ClientHello),
     Ext(ExtRequest),
 }
 
@@ -1062,6 +1550,14 @@ pub struct ServerHelloV0 {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub enum ServerHello {
     V0(ServerHelloV0),
+}
+
+impl ServerHello {
+    pub fn nonce(&self) -> &Vec<u8> {
+        match self {
+            ServerHello::V0(o) => &o.nonce,
+        }
+    }
 }
 
 /// Content of ClientAuthV0
@@ -1094,16 +1590,59 @@ pub enum ClientAuth {
     V0(ClientAuthV0),
 }
 
+impl ClientAuth {
+    pub fn content_v0(&self) -> ClientAuthContentV0 {
+        match self {
+            ClientAuth::V0(o) => o.content.clone(),
+        }
+    }
+    pub fn sig(&self) -> Sig {
+        match self {
+            ClientAuth::V0(o) => o.sig,
+        }
+    }
+    pub fn user(&self) -> PubKey {
+        match self {
+            ClientAuth::V0(o) => o.content.user,
+        }
+    }
+    pub fn client(&self) -> PubKey {
+        match self {
+            ClientAuth::V0(o) => o.content.client,
+        }
+    }
+    pub fn nonce(&self) -> &Vec<u8> {
+        match self {
+            ClientAuth::V0(o) => &o.content.nonce,
+        }
+    }
+}
+
 /// Authentication result
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct AuthResultV0 {
     pub result: u16,
+    #[serde(with = "serde_bytes")]
+    pub metadata: Vec<u8>,
 }
 
 /// Authentication result
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub enum AuthResult {
     V0(AuthResultV0),
+}
+
+impl AuthResult {
+    pub fn result(&self) -> u16 {
+        match self {
+            AuthResult::V0(o) => o.result,
+        }
+    }
+    pub fn metadata(&self) -> &Vec<u8> {
+        match self {
+            AuthResult::V0(o) => &o.metadata,
+        }
+    }
 }
 
 //
@@ -1127,6 +1666,24 @@ pub struct RepoLinkV0 {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub enum RepoLink {
     V0(RepoLinkV0),
+}
+
+impl RepoLink {
+    pub fn id(&self) -> PubKey {
+        match self {
+            RepoLink::V0(o) => o.id,
+        }
+    }
+    pub fn secret(&self) -> SymKey {
+        match self {
+            RepoLink::V0(o) => o.secret,
+        }
+    }
+    pub fn peers(&self) -> Vec<PeerAdvert> {
+        match self {
+            RepoLink::V0(o) => o.peers.clone(),
+        }
+    }
 }
 
 /// Link to object(s) or to a branch from a repository

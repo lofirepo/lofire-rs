@@ -5,7 +5,7 @@ use std::collections::{HashMap, HashSet};
 
 use fastbloom_rs::{BloomFilter as Filter, Membership};
 
-use crate::commit::*;
+use crate::object::*;
 use crate::store::*;
 use crate::types::*;
 
@@ -97,66 +97,47 @@ impl Branch {
     ///
     /// Return ObjectIds to send
     pub fn sync_req(
-        our_heads: &[ObjectRef],
+        our_heads: &[ObjectId],
         their_heads: &[ObjectId],
-        their_filter: BloomFilter,
-        store: &Store,
-    ) -> Result<Vec<ObjectId>, CommitLoadError> {
-        debug_println!(">> branch_sync");
-        debug_println!("   our_heads: {:?}", our_heads);
-        debug_println!("   their_heads: {:?}", their_heads);
+        their_filter: &BloomFilter,
+        store: &impl RepoStore,
+    ) -> Result<Vec<ObjectId>, ObjectParseError> {
+        //debug_println!(">> sync_req");
+        //debug_println!("   our_heads: {:?}", our_heads);
+        //debug_println!("   their_heads: {:?}", their_heads);
 
-        /// Load `Commit`s of a `Branch` from the `Store` starting from the given `Commit`,
+        /// Load `Commit` `Object`s of a `Branch` from the `RepoStore` starting from the given `Object`,
         /// and collect `ObjectId`s starting from `our_heads` towards `their_heads`
         fn load_branch(
-            commit: &Commit,
-            store: &Store,
+            cobj: &Object,
+            store: &impl RepoStore,
             their_heads: &[ObjectId],
-            their_heads_refs: &mut HashSet<ObjectRef>,
             visited: &mut HashSet<ObjectId>,
             missing: &mut HashSet<ObjectId>,
-        ) -> Result<bool, CommitLoadError> {
-            debug_println!(">>> load_branch: #{}", commit.seq());
+        ) -> Result<bool, ObjectParseError> {
+            //debug_println!(">>> load_branch: {}", cobj.id());
+            let id = cobj.id();
 
-            let id = commit.id().unwrap();
+            // root has no deps
+            let is_root = cobj.deps().len() == 0;
+            //debug_println!("     deps: {:?}", cobj.deps());
 
-            // load body & check if it's the Branch commit at the root
-            let is_root = match commit.load_body(store) {
-                Ok(body) => body.to_type() == CommitType::Branch,
-                Err(CommitLoadError::MissingBlocks(m)) => {
-                    missing.extend(m);
-                    false
-                }
-                Err(e) => return Err(e),
-            };
+            // check if this commit object is present in their_heads
+            let mut their_head_found = their_heads.contains(&id);
 
-            // check if this commit is in their_heads,
-            // and save the object's key
-            let their_head_found = their_heads.contains(&id);
-            if their_head_found {
-                let key = commit.key().unwrap();
-                their_heads_refs.insert(ObjectRef { id, key });
-                debug_println!("    their_head_found");
-            }
-
-            // load deps, stop at the root or if this is a commit from their_heads
+            // load deps, stop at the root or if this is a commit object from their_heads
             if !is_root && !their_head_found {
                 visited.insert(id);
-                for dep in commit.deps_acks() {
-                    match Commit::load(dep, store) {
-                        Ok(c) => {
-                            if !visited.contains(&dep.id) {
-                                load_branch(
-                                    &c,
-                                    store,
-                                    their_heads,
-                                    their_heads_refs,
-                                    visited,
-                                    missing,
-                                )?;
+                for id in cobj.deps() {
+                    match Object::load(*id, None, store) {
+                        Ok(o) => {
+                            if !visited.contains(id) {
+                                if load_branch(&o, store, their_heads, visited, missing)? {
+                                    their_head_found = true;
+                                }
                             }
                         }
-                        Err(CommitLoadError::MissingBlocks(m)) => {
+                        Err(ObjectParseError::MissingBlocks(m)) => {
                             missing.extend(m);
                         }
                         Err(e) => return Err(e),
@@ -174,43 +155,30 @@ impl Branch {
         let mut theirs = HashSet::new();
 
         // collect all commits reachable from our_heads
-        let mut their_heads_refs = HashSet::new();
-        for head in our_heads {
-            let commit = Commit::load(*head, store)?;
+        // up to the root or until encountering a commit from their_heads
+        for id in our_heads {
+            let cobj = Object::load(*id, None, store)?;
             let mut visited = HashSet::new();
-            let their_head_found = load_branch(
-                &commit,
-                store,
-                their_heads,
-                &mut their_heads_refs,
-                &mut visited,
-                &mut missing,
-            )?;
-            debug_println!("<<< load_branch: {}", their_head_found);
+            let their_head_found =
+                load_branch(&cobj, store, their_heads, &mut visited, &mut missing)?;
+            //debug_println!("<<< load_branch: {}", their_head_found);
             ours.extend(visited); // add if one of their_heads found
         }
 
         // collect all commits reachable from their_heads
-        for head in their_heads_refs.clone().iter() {
-            let commit = Commit::load(*head, store)?;
+        for id in their_heads {
+            let cobj = Object::load(*id, None, store)?;
             let mut visited = HashSet::new();
-            let their_head_found = load_branch(
-                &commit,
-                store,
-                &[],
-                &mut their_heads_refs,
-                &mut visited,
-                &mut missing,
-            )?;
-            debug_println!("<<< load_branch: {}", their_head_found);
+            let their_head_found = load_branch(&cobj, store, &[], &mut visited, &mut missing)?;
+            //debug_println!("<<< load_branch: {}", their_head_found);
             theirs.extend(visited); // add if one of their_heads found
         }
 
         let mut result = &ours - &theirs;
 
-        debug_println!("!! ours: {:?}", ours);
-        debug_println!("!! theirs: {:?}", theirs);
-        debug_println!("!! result: {:?}", result);
+        //debug_println!("!! ours: {:?}", ours);
+        //debug_println!("!! theirs: {:?}", theirs);
+        //debug_println!("!! result: {:?}", result);
 
         // remove their_commits from result
         let filter = Filter::from_u8_array(their_filter.f.as_slice(), their_filter.k.into());
@@ -223,7 +191,7 @@ impl Branch {
                 }
             }
         }
-        debug_println!("!! result filtered: {:?}", result);
+        //debug_println!("!! result filtered: {:?}", result);
         Ok(Vec::from_iter(result))
     }
 }
@@ -234,7 +202,6 @@ mod test {
     use ed25519_dalek::*;
     use fastbloom_rs::{BloomFilter as Filter, FilterBuilder, Membership};
     use rand::rngs::OsRng;
-    use rkv::EncodableKey;
 
     use crate::branch::*;
     use crate::commit::*;
@@ -250,10 +217,10 @@ mod test {
             expiry: Option<Timestamp>,
             repo_pubkey: PubKey,
             repo_secret: SymKey,
-            store: &Store,
+            store: &mut impl RepoStore,
         ) -> ObjectRef {
             let max_object_size = 4000;
-            let tree = Object::new(
+            let obj = Object::new(
                 content,
                 deps,
                 expiry,
@@ -261,9 +228,11 @@ mod test {
                 repo_pubkey,
                 repo_secret,
             );
-
-            tree.save(store);
-            tree.reference().unwrap()
+            println!(">>> add_obj");
+            println!("     id: {:?}", obj.id());
+            println!("     deps: {:?}", obj.deps());
+            obj.save(store).unwrap();
+            obj.reference().unwrap()
         }
 
         fn add_commit(
@@ -276,9 +245,11 @@ mod test {
             body_ref: ObjectRef,
             repo_pubkey: PubKey,
             repo_secret: SymKey,
-            store: &Store,
+            store: &mut impl RepoStore,
         ) -> ObjectRef {
-            let obj_deps = deps.iter().map(|r| r.id).collect();
+            let mut obj_deps: Vec<ObjectId> = vec![];
+            obj_deps.extend(deps.iter().map(|r| r.id));
+            obj_deps.extend(acks.iter().map(|r| r.id));
 
             let obj_ref = ObjectRef {
                 id: ObjectId::Blake3Digest32([1; 32]),
@@ -316,8 +287,7 @@ mod test {
             branch: Branch,
             repo_pubkey: PubKey,
             repo_secret: SymKey,
-            rng: &mut OsRng,
-            store: &Store,
+            store: &mut impl RepoStore,
         ) -> ObjectRef {
             let deps = vec![];
             let expiry = None;
@@ -337,7 +307,7 @@ mod test {
             deps: Vec<ObjectId>,
             repo_pubkey: PubKey,
             repo_secret: SymKey,
-            store: &Store,
+            store: &mut impl RepoStore,
         ) -> ObjectRef {
             let expiry = None;
             let content = [7u8; 777].to_vec();
@@ -357,7 +327,7 @@ mod test {
             deps: Vec<ObjectId>,
             repo_pubkey: PubKey,
             repo_secret: SymKey,
-            store: &Store,
+            store: &mut impl RepoStore,
         ) -> ObjectRef {
             let expiry = None;
             let body = CommitBody::Ack(Ack::V0());
@@ -372,15 +342,7 @@ mod test {
             )
         }
 
-        let root = tempfile::Builder::new()
-            .prefix("test-tree")
-            .tempdir()
-            .unwrap();
-        let key: [u8; 32] = [0; 32];
-        std::fs::create_dir_all(root.path()).unwrap();
-        println!("{}", root.path().to_str().unwrap());
-        let store = Store::open(root.path(), key);
-
+        let mut store = HashMapRepoStore::new();
         let mut rng = OsRng {};
 
         // repo
@@ -396,7 +358,7 @@ mod test {
             repo_keypair.public.as_bytes().len(),
             repo_keypair.public.as_bytes()
         );
-        let repo_privkey = PrivKey::Ed25519PrivKey(repo_keypair.secret.to_bytes());
+        let _repo_privkey = PrivKey::Ed25519PrivKey(repo_keypair.secret.to_bytes());
         let repo_pubkey = PubKey::Ed25519PubKey(repo_keypair.public.to_bytes());
         let repo_secret = SymKey::ChaCha20Key([9; 32]);
 
@@ -431,7 +393,22 @@ mod test {
             tags,
             metadata,
         );
-        println!("branch: {:?}", branch);
+        //println!("branch: {:?}", branch);
+
+        fn print_branch() {
+            println!("branch deps/acks:");
+            println!("");
+            println!("     br");
+            println!("    /  \\");
+            println!("  t1   t2");
+            println!("  / \\  / \\");
+            println!(" a3  t4<--t5-->(t1)");
+            println!("     / \\");
+            println!("   a6   a7");
+            println!("");
+        }
+
+        print_branch();
 
         // commit bodies
 
@@ -439,22 +416,12 @@ mod test {
             branch.clone(),
             repo_pubkey.clone(),
             repo_secret.clone(),
-            &mut rng,
-            &store,
+            &mut store,
         );
-        let ack_body = add_body_ack(vec![], repo_pubkey, repo_secret, &store);
-        let trans_body = add_body_trans(vec![], repo_pubkey, repo_secret, &store);
+        let ack_body = add_body_ack(vec![], repo_pubkey, repo_secret, &mut store);
+        let trans_body = add_body_trans(vec![], repo_pubkey, repo_secret, &mut store);
 
         // create & add commits to store
-        // deps/acks:
-        //
-        //     br
-        //    /  \
-        //  t1   t2
-        //  / \  / \
-        // a3  t4<--t5-->(t1)
-        //     / \
-        //   a6   a7
 
         println!(">> br");
         let br = add_commit(
@@ -467,7 +434,7 @@ mod test {
             branch_body,
             repo_pubkey,
             repo_secret,
-            &store,
+            &mut store,
         );
 
         println!(">> t1");
@@ -481,7 +448,7 @@ mod test {
             trans_body,
             repo_pubkey,
             repo_secret,
-            &store,
+            &mut store,
         );
 
         println!(">> t2");
@@ -495,7 +462,7 @@ mod test {
             trans_body,
             repo_pubkey,
             repo_secret,
-            &store,
+            &mut store,
         );
 
         println!(">> a3");
@@ -509,7 +476,7 @@ mod test {
             ack_body,
             repo_pubkey,
             repo_secret,
-            &store,
+            &mut store,
         );
 
         println!(">> t4");
@@ -523,7 +490,7 @@ mod test {
             trans_body,
             repo_pubkey,
             repo_secret,
-            &store,
+            &mut store,
         );
 
         println!(">> t5");
@@ -537,7 +504,7 @@ mod test {
             trans_body,
             repo_pubkey,
             repo_secret,
-            &store,
+            &mut store,
         );
 
         println!(">> a6");
@@ -551,7 +518,7 @@ mod test {
             ack_body,
             repo_pubkey,
             repo_secret,
-            &store,
+            &mut store,
         );
 
         println!(">> a7");
@@ -565,7 +532,7 @@ mod test {
             ack_body,
             repo_pubkey,
             repo_secret,
-            &store,
+            &mut store,
         );
 
         let c7 = Commit::load(a7, &store).unwrap();
@@ -583,8 +550,20 @@ mod test {
             f: filter.get_u8_array().to_vec(),
         };
 
-        let ids =
-            Branch::sync_req(&[a3, t5, a6, a7], &[a3.id, t5.id], their_commits, &store).unwrap();
+        print_branch();
+        println!(">> sync_req");
+        println!("   our_heads: [a3, t5, a6, a7]");
+        println!("   their_heads: [a3, t5]");
+        println!("   their_commits: [br, t1, t2, a3, t5, a6]");
+
+        let ids = Branch::sync_req(
+            &[a3.id, t5.id, a6.id, a7.id],
+            &[a3.id, t5.id],
+            &their_commits,
+            &store,
+        )
+        .unwrap();
+
         assert_eq!(ids.len(), 1);
         assert!(ids.contains(&a7.id));
     }

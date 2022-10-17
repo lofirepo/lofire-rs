@@ -28,9 +28,16 @@
         })
         .buildRustPackage;
       myNativeBuildInputs = with pkgs; [
+        pkgconfig
       ];
-      myBuildInputs = with pkgs; [
-      ];
+      myBuildInputs = with pkgs;
+        [
+          openssl
+        ]
+        ++ lib.optionals stdenv.isDarwin
+        (with darwin.apple_sdk.frameworks; [
+          Security
+        ]);
       myBuildRustPackage = attrs:
         buildRustPackage ({
             version = "0.1.0";
@@ -38,15 +45,13 @@
             cargoLock = {
               lockFile = ./Cargo.lock;
               outputHashes = {
-                "lmdb-crypto-rs-0.14.0" = "sha256-Js5pmytq4N52yClhzeps5qHnTTrRGRUMX16ss8FWgwo=";
-                #pkgs.lib.fakeSha256;
-                "rkv-0.18.0" = "sha256-TnU+I6DINegLlzKPZ1Pet8Kr5x/WqEo2kwxQU3q7G34=";
+                "lmdb-crypto-rs-0.14.0" = "sha256-cCTQuYxhiFHQZb+OW997sis50z5XrQk+KiTeaa2mlhk=";
+                "rkv-0.18.0" = "sha256-G0E2qC4Uie4es91aNiVZeI50SLBUc0KQQq+t08kpRIc=";
               };
             };
             nativeBuildInputs = myNativeBuildInputs;
             buildInputs = myBuildInputs;
-            #RUST_BACKTRACE=1;
-            #RUST_LOG="trace";
+            RUST_BACKTRACE = 1;
           }
           // attrs);
     in rec {
@@ -63,6 +68,10 @@
           pname = "lofire-p2p";
           buildAndTestSubdir = "./lofire-p2p";
         };
+        lofire-store-lmdb = myBuildRustPackage rec {
+          pname = "lofire-store-lmdb";
+          buildAndTestSubdir = "./lofire-store-lmdb";
+        };
         lofire-node = myBuildRustPackage rec {
           pname = "lofire-node";
           buildAndTestSubdir = "./lofire-node";
@@ -73,18 +82,17 @@
         };
         default = lofire-node;
       };
-      defaultPackage = packages.default; # compat
 
       apps = rec {
-          lofire-node = utils.lib.mkApp {
-            drv = packages.lofire-node;
-            exePath = "/bin/lofire-node";
-          };
-          lofire-demo = utils.lib.mkApp  {
-            drv = packages.lofire-demo;
-            exePath = "/bin/lofire-demo";
-          };
-          default = lofire-node;
+        lofire-node = utils.lib.mkApp {
+          drv = packages.lofire-node;
+          exePath = "/bin/lofire-node";
+        };
+        lofire-demo = utils.lib.mkApp {
+          drv = packages.lofire-demo;
+          exePath = "/bin/lofire-demo";
+        };
+        default = lofire-node;
       };
     });
 }

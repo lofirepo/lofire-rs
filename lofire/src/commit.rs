@@ -13,7 +13,7 @@ use crate::types::*;
 #[derive(Debug)]
 pub enum CommitLoadError {
     MissingBlocks(Vec<BlockId>),
-    BlockParseError(BlockId),
+    ObjectParseError,
     DeserializeError,
 }
 
@@ -118,13 +118,13 @@ impl Commit {
     }
 
     /// Load commit from store
-    pub fn load(commit_ref: ObjectRef, store: &Store) -> Result<Commit, CommitLoadError> {
+    pub fn load(commit_ref: ObjectRef, store: &impl RepoStore) -> Result<Commit, CommitLoadError> {
         let (id, key) = (commit_ref.id, commit_ref.key);
         match Object::load(id, Some(key), store) {
             Ok(obj) => {
                 let content = obj
                     .content()
-                    .map_err(|_e| CommitLoadError::BlockParseError(id))?;
+                    .map_err(|_e| CommitLoadError::ObjectParseError)?;
                 let mut commit = match content {
                     ObjectContent::Commit(c) => c,
                     _ => return Err(CommitLoadError::DeserializeError),
@@ -133,19 +133,24 @@ impl Commit {
                 commit.set_key(key);
                 Ok(commit)
             }
-            Err(missing) => Err(CommitLoadError::MissingBlocks(missing)),
+            Err(ObjectParseError::MissingBlocks(missing)) => {
+                Err(CommitLoadError::MissingBlocks(missing))
+            }
+            Err(_) => Err(CommitLoadError::ObjectParseError),
         }
     }
 
     /// Load commit body from store
-    pub fn load_body(&self, store: &Store) -> Result<CommitBody, CommitLoadError> {
+    pub fn load_body(&self, store: &impl RepoStore) -> Result<CommitBody, CommitLoadError> {
         let content = self.content();
         let (id, key) = (content.body.id, content.body.key);
-        let obj = Object::load(id.clone(), Some(key.clone()), store)
-            .map_err(|missing| CommitLoadError::MissingBlocks(missing))?;
+        let obj = Object::load(id.clone(), Some(key.clone()), store).map_err(|e| match e {
+            ObjectParseError::MissingBlocks(missing) => CommitLoadError::MissingBlocks(missing),
+            _ => CommitLoadError::ObjectParseError,
+        })?;
         let content = obj
             .content()
-            .map_err(|_e| CommitLoadError::BlockParseError(id))?;
+            .map_err(|_e| CommitLoadError::ObjectParseError)?;
         match content {
             ObjectContent::CommitBody(body) => Ok(body),
             _ => Err(CommitLoadError::DeserializeError),
@@ -254,17 +259,17 @@ impl Commit {
     }
 
     /// Verify if the commit's `body` and dependencies (`deps` & `acks`) are available in the `store`
-    pub fn verify_deps(&self, store: &Store) -> Result<Vec<ObjectId>, CommitLoadError> {
-        debug_println!(">> verify_deps: #{}", self.seq());
-        /// Load `Commit`s of a `Branch` from the `Store` starting from the given `Commit`,
+    pub fn verify_deps(&self, store: &impl RepoStore) -> Result<Vec<ObjectId>, CommitLoadError> {
+        //debug_println!(">> verify_deps: #{}", self.seq());
+        /// Load `Commit`s of a `Branch` from the `RepoStore` starting from the given `Commit`,
         /// and collect missing `ObjectId`s
         fn load_branch(
             commit: &Commit,
-            store: &Store,
+            store: &impl RepoStore,
             visited: &mut HashSet<ObjectId>,
             missing: &mut HashSet<ObjectId>,
         ) -> Result<(), CommitLoadError> {
-            debug_println!(">>> load_branch: #{}", commit.seq());
+            //debug_println!(">>> load_branch: #{}", commit.seq());
             // the commit verify_deps() was called on may not have an ID set,
             // but the commits loaded from store should have it
             match commit.id() {
@@ -316,7 +321,7 @@ impl Commit {
     }
 
     /// Verify signature, permissions, and dependencies
-    pub fn verify(&self, branch: &Branch, store: &Store) -> Result<(), CommitVerifyError> {
+    pub fn verify(&self, branch: &Branch, store: &impl RepoStore) -> Result<(), CommitVerifyError> {
         self.verify_sig()
             .map_err(|_e| CommitVerifyError::InvalidSignature)?;
         let body = self
@@ -334,7 +339,6 @@ mod test {
 
     use ed25519_dalek::*;
     use rand::rngs::OsRng;
-    use rkv::EncodableKey;
 
     use crate::branch::*;
     use crate::commit::*;
@@ -379,17 +383,10 @@ mod test {
         .unwrap();
         println!("commit: {:?}", commit);
 
-        let root = tempfile::Builder::new()
-            .prefix("test-tree")
-            .tempdir()
-            .unwrap();
-        let key: [u8; 32] = [0; 32];
-        std::fs::create_dir_all(root.path()).unwrap();
-        println!("{}", root.path().to_str().unwrap());
-        let store = Store::open(root.path(), key);
-
+        let store = HashMapRepoStore::new();
         let metadata = [66u8; 64].to_vec();
         let commit_types = vec![CommitType::Ack, CommitType::Transaction];
+        let key: [u8; 32] = [0; 32];
         let secret = SymKey::ChaCha20Key(key);
         let member = MemberV0::new(pub_key, commit_types, metadata.clone());
         let members = vec![member];
@@ -407,9 +404,9 @@ mod test {
             tags,
             metadata,
         );
-        println!("branch: {:?}", branch);
+        //println!("branch: {:?}", branch);
         let body = CommitBody::Ack(Ack::V0());
-        println!("body: {:?}", body);
+        //println!("body: {:?}", body);
 
         match commit.load_body(&store) {
             Ok(_b) => panic!("Body should not exist"),

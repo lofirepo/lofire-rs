@@ -2,6 +2,7 @@
 //!
 //! Corresponds to the BARE schema
 
+use core::fmt;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::hash::Hash;
@@ -19,6 +20,14 @@ pub enum Digest {
     Blake3Digest32(Blake3Digest32),
 }
 
+impl fmt::Display for Digest {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Digest::Blake3Digest32(d) => write!(f, "{}", hex::encode(d)),
+        }
+    }
+}
+
 /// ChaCha20 symmetric key
 pub type ChaCha20Key = [u8; 32];
 
@@ -28,6 +37,14 @@ pub enum SymKey {
     ChaCha20Key(ChaCha20Key),
 }
 
+impl SymKey {
+    pub fn slice(&self) -> &[u8; 32] {
+        match self {
+            SymKey::ChaCha20Key(o) => o,
+        }
+    }
+}
+
 /// Curve25519 public key
 pub type Ed25519PubKey = [u8; 32];
 
@@ -35,9 +52,25 @@ pub type Ed25519PubKey = [u8; 32];
 pub type Ed25519PrivKey = [u8; 32];
 
 /// Public key
-#[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq, Eq, Hash)]
 pub enum PubKey {
     Ed25519PubKey(Ed25519PubKey),
+}
+
+impl PubKey {
+    pub fn slice(&self) -> &[u8; 32] {
+        match self {
+            PubKey::Ed25519PubKey(o) => o,
+        }
+    }
+}
+
+impl fmt::Display for PubKey {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            PubKey::Ed25519PubKey(d) => write!(f, "{}", hex::encode(d)),
+        }
+    }
 }
 
 /// Private key
@@ -149,6 +182,14 @@ pub enum ObjectDeps {
 /// A Block is a Merkle tree node.
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
 pub struct BlockV0 {
+    /// Block ID
+    #[serde(skip)]
+    pub id: Option<BlockId>,
+
+    /// Block Key
+    #[serde(skip)]
+    pub key: Option<SymKey>,
+
     /// Block IDs for child nodes in the Merkle tree
     pub children: Vec<BlockId>,
 

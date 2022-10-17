@@ -1,0 +1,19 @@
+[package]
+name = "lofire-store-lmdb"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+lofire = { path = "../lofire" }
+debug_print = "1.0.0"
+serde = { version = "1.0.142", features = ["derive"] }
+serde_bare = "0.5.0"
+tempfile = "3"
+hex = "0.4.3"
+
+[dependencies.rkv]
+git = "https://github.com/p2pcollab/rkv.git"
+rev = "19fc8e0b686a21c591e3a137e623fea40445fdb8"
+features = [ "lmdb" ]
