@@ -102,37 +102,39 @@ impl Branch {
         their_filter: BloomFilter,
         store: &impl RepoStore,
     ) -> Result<Vec<ObjectId>, ObjectParseError> {
-        debug_println!(">> branch_sync");
+        debug_println!(">> sync_req");
         debug_println!("   our_heads: {:?}", our_heads);
         debug_println!("   their_heads: {:?}", their_heads);
 
         /// Load `Commit` `Object`s of a `Branch` from the `RepoStore` starting from the given `Object`,
         /// and collect `ObjectId`s starting from `our_heads` towards `their_heads`
         fn load_branch(
-            obj: &Object,
+            cobj: &Object,
             store: &impl RepoStore,
             their_heads: &[ObjectId],
             visited: &mut HashSet<ObjectId>,
             missing: &mut HashSet<ObjectId>,
         ) -> Result<bool, ObjectParseError> {
-            debug_println!(">>> load_branch: {}", obj.id());
-            let id = obj.id();
+            debug_println!(">>> load_branch: {}", cobj.id());
+            let id = cobj.id();
 
             // root has no deps
-            let is_root = obj.deps().len() == 0;
-            debug_println!("     deps: {:?}", obj.deps());
+            let is_root = cobj.deps().len() == 0;
+            debug_println!("     deps: {:?}", cobj.deps());
 
-            // check if this object is present in their_heads
-            let their_head_found = their_heads.contains(&id);
+            // check if this commit object is present in their_heads
+            let mut their_head_found = their_heads.contains(&id);
 
             // load deps, stop at the root or if this is a commit object from their_heads
             if !is_root && !their_head_found {
                 visited.insert(id);
-                for id in obj.deps() {
+                for id in cobj.deps() {
                     match Object::load(*id, None, store) {
                         Ok(o) => {
                             if !visited.contains(id) {
-                                load_branch(&o, store, their_heads, visited, missing)?;
+                                if load_branch(&o, store, their_heads, visited, missing)? {
+                                    their_head_found = true;
+                                }
                             }
                         }
                         Err(ObjectParseError::MissingBlocks(m)) => {
@@ -153,22 +155,23 @@ impl Branch {
         let mut theirs = HashSet::new();
 
         // collect all commits reachable from our_heads
+        // up to the root or until encountering a commit from their_heads
         for id in our_heads {
-            let obj = Object::load(*id, None, store)?;
+            let cobj = Object::load(*id, None, store)?;
             let mut visited = HashSet::new();
             let their_head_found =
-                load_branch(&obj, store, their_heads, &mut visited, &mut missing)?;
+                load_branch(&cobj, store, their_heads, &mut visited, &mut missing)?;
             debug_println!("<<< load_branch: {}", their_head_found);
-            ours.extend(visited); // add if one of their_heads found
+            ours.extend(visited);
         }
 
         // collect all commits reachable from their_heads
         for id in their_heads {
-            let commit = Object::load(*id, None, store)?;
+            let cobj = Object::load(*id, None, store)?;
             let mut visited = HashSet::new();
-            let their_head_found = load_branch(&commit, store, &[], &mut visited, &mut missing)?;
+            let their_head_found = load_branch(&cobj, store, &[], &mut visited, &mut missing)?;
             debug_println!("<<< load_branch: {}", their_head_found);
-            theirs.extend(visited); // add if one of their_heads found
+            theirs.extend(visited);
         }
 
         let mut result = &ours - &theirs;
@@ -392,16 +395,20 @@ mod test {
         );
         println!("branch: {:?}", branch);
 
-        println!("branch deps/acks:");
-        println!("");
-        println!("     br");
-        println!("    /  \\");
-        println!("  t1   t2");
-        println!("  / \\  / \\");
-        println!(" a3  t4<--t5-->(t1)");
-        println!("     / \\");
-        println!("   a6   a7");
-        println!("");
+        fn print_branch() {
+            println!("branch deps/acks:");
+            println!("");
+            println!("     br");
+            println!("    /  \\");
+            println!("  t1   t2");
+            println!("  / \\  / \\");
+            println!(" a3  t4<--t5-->(t1)");
+            println!("     / \\");
+            println!("   a6   a7");
+            println!("");
+        }
+
+        print_branch();
 
         // commit bodies
 
@@ -543,6 +550,12 @@ mod test {
             f: filter.get_u8_array().to_vec(),
         };
 
+        print_branch();
+        println!(">> sync_req");
+        println!("   our_heads: [a3, t5, a6, a7]");
+        println!("   their_heads: [a3, t5]");
+        println!("   their_commits: [br, t1, t2, a3, t5, a6]");
+
         let ids = Branch::sync_req(
             &[a3.id, t5.id, a6.id, a7.id],
             &[a3.id, t5.id],
@@ -550,6 +563,7 @@ mod test {
             &store,
         )
         .unwrap();
+
         assert_eq!(ids.len(), 1);
         assert!(ids.contains(&a7.id));
     }
