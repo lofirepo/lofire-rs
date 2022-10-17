@@ -428,10 +428,15 @@ async fn test_sync(cnx: &mut impl BrokerConnection, user_pub_key: PubKey, userpr
     let mut i = 0;
     while let Some(b) = synced_blocks_stream.next().await {
         debug_println!("GOT BLOCK {}", b.id());
+        store.put(&b);
         i += 1;
     }
 
     debug_println!("SYNCED {} BLOCKS", i);
+
+    debug_println!("LOCAL STORE HAS {} BLOCKS", store.get_all().len());
+
+    // now the client can verify the DAG and each commit. Then update its list of heads.
 }
 
 async fn test(cnx: &mut impl BrokerConnection, pub_key: PubKey, priv_key: PrivKey) {
