@@ -32,10 +32,10 @@ cargo test --package lofire --lib -- branch::test --nocapture
 
 #### Documentation
 
-Generate documentation:
+Generate documentation for all packages without their dependencies:
 
 ```
-cargo doc
+cargo doc --no-deps
 ```
 
 The generated documentation can be found in `target/doc/<crate-name>`.

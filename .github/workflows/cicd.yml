@@ -14,8 +14,18 @@ jobs:
         run: cargo build
       - name: cargo test
         run: cargo test
+
+  cargo-doc:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v2
+      - uses: nixbuild/nix-quick-install-action@v17
+        with:
+          nix_conf: experimental-features = nix-command flakes
+      - name: nix develop
+        run: nix develop
       - name: cargo doc
-        run: cargo doc
+        run: cargo doc --no-deps
       - name: upload doc
         uses: actions/upload-artifact@v3
         with:
