@@ -45,8 +45,8 @@
             cargoLock = {
               lockFile = ./Cargo.lock;
               outputHashes = {
-                "lmdb-crypto-rs-0.14.0" = "sha256-Js5pmytq4N52yClhzeps5qHnTTrRGRUMX16ss8FWgwo=";
-                "rkv-0.18.0" = "sha256-TnU+I6DINegLlzKPZ1Pet8Kr5x/WqEo2kwxQU3q7G34=";
+                "lmdb-crypto-rs-0.14.0" = "sha256-cCTQuYxhiFHQZb+OW997sis50z5XrQk+KiTeaa2mlhk=";
+                "rkv-0.18.0" = "sha256-G0E2qC4Uie4es91aNiVZeI50SLBUc0KQQq+t08kpRIc=";
               };
             };
             nativeBuildInputs = myNativeBuildInputs;
