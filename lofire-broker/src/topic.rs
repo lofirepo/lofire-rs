@@ -1,95 +1,127 @@
 //! Topic
 
+use lofire::brokerstore::BrokerStore;
 use lofire::store::*;
 use lofire::types::*;
 use lofire_net::types::*;
 use serde::{Deserialize, Serialize};
+use serde_bare::{from_slice, to_vec};
 
-pub enum TopicLoadError {
-    NotFound,
-    StoreError,
-    ValueError,
-}
-
-pub enum TopicSaveError {
-    StoreError,
-    ValueError,
-}
-
-/// A topic this node subscribed to in an overlay
-#[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct TopicV0 {
-    /// Topic public key ID
-    pub id: PubKey,
-
-    /// Signed `TopicAdvert` for publishers
-    pub advert: Option<TopicAdvert>,
-
-    /// Set of branch heads
-    pub heads: Vec<ObjectId>,
-
-    /// Number of local users that subscribed to the topic
+// TODO: versioning V0
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+pub struct TopicMeta {
     pub users: u32,
-
-    /// Last access by any user
-    pub last_access: Timestamp,
 }
 
-/// A topic this node subscribed to in an overlay
-#[derive(Clone, Debug, Serialize, Deserialize)]
-pub enum Topic {
-    V0(TopicV0),
+pub struct Topic<'a> {
+    /// Topic ID
+    id: TopicId,
+    store: &'a dyn BrokerStore,
 }
 
-impl TopicV0 {
-    pub fn new(
-        id: PubKey,
-        advert: Option<TopicAdvert>,
-        heads: Vec<ObjectId>,
-        users: u32,
-        last_access: Timestamp,
-    ) -> TopicV0 {
-        TopicV0 {
-            id,
-            advert,
-            heads,
-            users,
-            last_access,
+impl<'a> Topic<'a> {
+    const PREFIX: u8 = b"t"[0];
+
+    // propertie's suffixes
+    const ADVERT: u8 = b"a"[0];
+    const HEAD: u8 = b"h"[0];
+    const META: u8 = b"m"[0];
+
+    const ALL_PROPERTIES: [u8; 3] = [Self::ADVERT, Self::HEAD, Self::META];
+
+    const SUFFIX_FOR_EXIST_CHECK: u8 = Self::META;
+
+    pub fn open(id: &TopicId, store: &'a dyn BrokerStore) -> Result<Topic<'a>, StoreGetError> {
+        let opening = Topic {
+            id: id.clone(),
+            store,
+        };
+        if !opening.exists() {
+            return Err(StoreGetError::NotFound);
+        }
+        Ok(opening)
+    }
+    pub fn create(id: &TopicId, store: &'a dyn BrokerStore) -> Result<Topic<'a>, StorePutError> {
+        let acc = Topic {
+            id: id.clone(),
+            store,
+        };
+        if acc.exists() {
+            return Err(StorePutError::BackendError);
+        }
+        let meta = TopicMeta { users: 0 };
+        store.put(
+            Self::PREFIX,
+            &to_vec(&id)?,
+            Some(Self::META),
+            to_vec(&meta)?,
+        )?;
+        Ok(acc)
+    }
+    pub fn exists(&self) -> bool {
+        self.store
+            .get(
+                Self::PREFIX,
+                &to_vec(&self.id).unwrap(),
+                Some(Self::SUFFIX_FOR_EXIST_CHECK),
+            )
+            .is_ok()
+    }
+    pub fn id(&self) -> TopicId {
+        self.id
+    }
+    pub fn add_head(&self, head: &ObjectId) -> Result<(), StorePutError> {
+        if !self.exists() {
+            return Err(StorePutError::BackendError);
+        }
+        self.store.put(
+            Self::PREFIX,
+            &to_vec(&self.id)?,
+            Some(Self::HEAD),
+            to_vec(head)?,
+        )
+    }
+    pub fn remove_head(&self, head: &ObjectId) -> Result<(), StoreDelError> {
+        self.store.del_property_value(
+            Self::PREFIX,
+            &to_vec(&self.id)?,
+            Some(Self::HEAD),
+            to_vec(head)?,
+        )
+    }
+
+    pub fn has_head(&self, head: &ObjectId) -> Result<(), StoreGetError> {
+        self.store.has_property_value(
+            Self::PREFIX,
+            &to_vec(&self.id)?,
+            Some(Self::HEAD),
+            to_vec(head)?,
+        )
+    }
+
+    pub fn metadata(&self) -> Result<TopicMeta, StoreGetError> {
+        match self
+            .store
+            .get(Self::PREFIX, &to_vec(&self.id)?, Some(Self::META))
+        {
+            Ok(meta) => Ok(from_slice::<TopicMeta>(&meta)?),
+            Err(e) => Err(e),
         }
     }
-}
-
-impl Topic {
-    pub fn new(
-        id: PubKey,
-        advert: Option<TopicAdvert>,
-        heads: Vec<ObjectId>,
-        users: u32,
-        last_access: Timestamp,
-    ) -> Topic {
-        Topic::V0(TopicV0::new(id, advert, heads, users, last_access))
-    }
-
-    pub fn id(&self) -> PubKey {
-        match self {
-            Topic::V0(a) => a.id,
+    pub fn set_metadata(&self, meta: &TopicMeta) -> Result<(), StorePutError> {
+        if !self.exists() {
+            return Err(StorePutError::BackendError);
         }
+        self.store.replace(
+            Self::PREFIX,
+            &to_vec(&self.id)?,
+            Some(Self::META),
+            to_vec(meta)?,
+        )
     }
 
-    pub fn load(id: PubKey, store: &impl Store) -> Result<Topic, TopicLoadError> {
-        let topic_ser = store.get_account(&id).map_err(|e| match e {
-            StoreGetError::NotFound => TopicLoadError::NotFound,
-            _ => TopicLoadError::StoreError,
-        })?;
-        serde_bare::from_slice::<Topic>(topic_ser.as_slice()).map_err(|e| match e {
-            _ => TopicLoadError::ValueError,
-        })
-    }
-
-    pub fn save(&self, store: &mut impl Store) -> Result<(), TopicSaveError> {
-        let topic_ser = serde_bare::to_vec(&self).map_err(|_| TopicSaveError::ValueError)?;
-        store
-            .put_account(self.id(), topic_ser)
-            .map_err(|_| TopicSaveError::StoreError)
+    pub fn del(&self) -> Result<(), StoreDelError> {
+        self.store
+            .del_all(Self::PREFIX, &to_vec(&self.id)?, &Self::ALL_PROPERTIES)
     }
 }

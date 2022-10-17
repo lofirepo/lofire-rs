@@ -251,7 +251,7 @@ impl Object {
     pub fn copy(
         id: ObjectId,
         expiry: Option<Timestamp>,
-        store: &mut impl Store,
+        store: &mut impl RepoStore,
     ) -> Result<ObjectId, StoreGetError> {
         // getting the old object from store
         let old = Self::from_store(id, None, store).map_err(|e| StoreGetError::NotFound)?;
@@ -335,13 +335,13 @@ impl Object {
     pub fn from_store(
         id: ObjectId,
         key: Option<SymKey>,
-        store: &impl Store,
+        store: &impl RepoStore,
     ) -> Result<Object, Vec<BlockId>> {
         Self::load(id, key, |id: &BlockId| store.get(id).or(Err(())))
     }
 
     /// Save blocks of the object in the store
-    pub fn save(&self, store: &mut impl Store) -> Result<(), StorePutError> {
+    pub fn save(&self, store: &mut impl RepoStore) -> Result<(), StorePutError> {
         let mut deduplicated: HashSet<ObjectId> = HashSet::new();
         for block in &self.blocks {
             let id = block.id();
@@ -513,7 +513,7 @@ mod test {
     use crate::store::*;
     use crate::types::*;
 
-    // Those constants are calculated with Store::get_max_value_size
+    // Those constants are calculated with RepoStore::get_max_value_size
 
     /// Maximum arity of branch containing max number of leaves
     const MAX_ARITY_LEAVES: usize = 31774;
@@ -564,7 +564,7 @@ mod test {
             }
             Err(e) => panic!("Object parse error: {:?}", e),
         }
-        let mut store = HashMapStore::new();
+        let mut store = HashMapRepoStore::new();
 
         object.save(&mut store).expect("Object save error");
 

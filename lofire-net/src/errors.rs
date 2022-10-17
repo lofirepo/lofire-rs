@@ -21,11 +21,16 @@ pub enum ProtocolError {
     PartialContent,
     AccessDenied,
     OverlayNotJoined,
+    OverlayNotFound,
+    BrokerError,
     NotFound,
     EndOfStream,
     StoreError,
     MissingBlocks,
     InvalidValue,
+    UserAlreadyExists,
+    RepoIdRequired,
+    Closing,
 }
 
 impl ProtocolError {

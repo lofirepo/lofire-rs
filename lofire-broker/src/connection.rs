@@ -134,22 +134,6 @@ impl Handler<BrokerMessageXActor> for BrokerMessageStreamActor {
     }
 }
 
-// pub struct OverlayConnectionServer<'a, T> {
-//     broker: &'a T,
-// }
-
-// impl<'a, T> OverlayConnectionServer<'a, T> {
-//     pub fn sync_branch(&self) {}
-
-//     pub fn leave(&self) {}
-
-//     pub fn topic_connect(&self, id: TopicId) -> TopicSubscription<T> {
-//         unimplemented!()
-//     }
-
-//     pub fn get_block(&self, id: BlockId) {}
-// }
-
 pub struct OverlayConnectionClient<'a, T>
 where
     T: BrokerConnection,
@@ -336,17 +320,19 @@ pub trait BrokerConnection {
     type OC: BrokerConnection;
     type BlockStream: Stream<Item = Block>;
 
+    async fn close(&mut self);
+
     async fn add_user(
         &mut self,
         user_id: PubKey,
         admin_user_pk: PrivKey,
     ) -> Result<(), ProtocolError>;
 
-    async fn del_user(&mut self);
+    async fn del_user(&mut self, user_id: PubKey, admin_user_pk: PrivKey);
 
-    async fn add_client(&mut self);
+    async fn add_client(&mut self, client_id: ClientId, user_pk: PrivKey);
 
-    async fn del_client(&mut self);
+    async fn del_client(&mut self, client_id: ClientId, user_pk: PrivKey);
 
     async fn overlay_connect(
         &mut self,
@@ -372,6 +358,55 @@ pub trait BrokerConnection {
         overlay: OverlayId,
         request: BrokerOverlayRequestContentV0,
     ) -> Result<ObjectId, ProtocolError>;
+
+    async fn process_overlay_connect(
+        &mut self,
+        repo_link: &RepoLink,
+        public: bool,
+    ) -> Result<OverlayId, ProtocolError> {
+        let overlay: OverlayId = match public {
+            true => Digest::Blake3Digest32(*blake3::hash(repo_link.id().slice()).as_bytes()),
+            false => {
+                let key: [u8; blake3::OUT_LEN] =
+                    blake3::derive_key("LoFiRe OverlayId BLAKE3 key", repo_link.secret().slice());
+                let keyed_hash = blake3::keyed_hash(&key, repo_link.id().slice());
+                Digest::Blake3Digest32(*keyed_hash.as_bytes())
+            }
+        };
+
+        let res = self
+            .process_overlay_request(
+                overlay,
+                BrokerOverlayRequestContentV0::OverlayConnect(OverlayConnect::V0()),
+            )
+            .await;
+
+        match res {
+            Err(e) => {
+                if e == ProtocolError::OverlayNotJoined {
+                    debug_println!("OverlayNotJoined");
+                    let res2 = self
+                        .process_overlay_request(
+                            overlay,
+                            BrokerOverlayRequestContentV0::OverlayJoin(OverlayJoin::V0(
+                                OverlayJoinV0 {
+                                    secret: repo_link.secret(),
+                                    peers: repo_link.peers(),
+                                    repo_pubkey: Some(repo_link.id()), //TODO if we know we are connecting to a core node, we can pass None here
+                                },
+                            )),
+                        )
+                        .await?;
+                } else {
+                    return Err(e);
+                }
+            }
+            Ok(()) => {}
+        }
+
+        debug_println!("OverlayConnectionClient ready");
+        Ok(overlay)
+    }
 }
 
 pub struct BrokerConnectionLocal<'a> {
@@ -384,6 +419,8 @@ impl<'a> BrokerConnection for BrokerConnectionLocal<'a> {
     type OC = BrokerConnectionLocal<'a>;
     type BlockStream = async_channel::Receiver<Block>;
 
+    async fn close(&mut self) {}
+
     async fn add_user(
         &mut self,
         user_id: PubKey,
@@ -392,7 +429,7 @@ impl<'a> BrokerConnection for BrokerConnectionLocal<'a> {
         let op_content = AddUserContentV0 { user: user_id };
         let sig = sign(admin_user_pk, self.user, &serde_bare::to_vec(&op_content)?)?;
 
-        self.broker.add_user(user_id, self.user, sig)
+        self.broker.add_user(self.user, user_id, sig)
     }
 
     async fn process_overlay_request(
@@ -402,21 +439,24 @@ impl<'a> BrokerConnection for BrokerConnectionLocal<'a> {
     ) -> Result<(), ProtocolError> {
         match request {
             BrokerOverlayRequestContentV0::OverlayConnect(_) => {
-                self.broker.overlay_connect(overlay)
+                self.broker.overlay_connect(self.user, overlay)
             }
             BrokerOverlayRequestContentV0::OverlayJoin(j) => {
-                self.broker.overlay_join(overlay, j.secret(), j.peers())
+                self.broker
+                    .overlay_join(self.user, overlay, j.repo_pubkey(), j.secret(), j.peers())
             }
             BrokerOverlayRequestContentV0::ObjectPin(op) => {
-                self.broker.pin_object(overlay, op.id())
+                self.broker.pin_object(self.user, overlay, op.id())
             }
             BrokerOverlayRequestContentV0::ObjectUnpin(op) => {
-                self.broker.unpin_object(overlay, op.id())
+                self.broker.unpin_object(self.user, overlay, op.id())
             }
             BrokerOverlayRequestContentV0::ObjectDel(op) => {
-                self.broker.del_object(overlay, op.id())
+                self.broker.del_object(self.user, overlay, op.id())
             }
-            BrokerOverlayRequestContentV0::BlockPut(b) => self.broker.block_put(overlay, b.block()),
+            BrokerOverlayRequestContentV0::BlockPut(b) => {
+                self.broker.block_put(self.user, overlay, b.block())
+            }
             _ => Err(ProtocolError::InvalidState),
         }
     }
@@ -428,7 +468,8 @@ impl<'a> BrokerConnection for BrokerConnectionLocal<'a> {
     ) -> Result<ObjectId, ProtocolError> {
         match request {
             BrokerOverlayRequestContentV0::ObjectCopy(oc) => {
-                self.broker.copy_object(overlay, oc.id(), oc.expiry())
+                self.broker
+                    .copy_object(self.user, overlay, oc.id(), oc.expiry())
             }
             _ => Err(ProtocolError::InvalidState),
         }
@@ -443,25 +484,24 @@ impl<'a> BrokerConnection for BrokerConnectionLocal<'a> {
             // TODO BranchSyncReq
             BrokerOverlayRequestContentV0::BlockGet(b) => self
                 .broker
-                .block_get(overlay, b.id(), b.include_children(), b.topic())
+                .block_get(self.user, overlay, b.id(), b.include_children(), b.topic())
                 .map(|r| Box::pin(r)),
             _ => Err(ProtocolError::InvalidState),
         }
     }
 
-    async fn del_user(&mut self) {}
+    async fn del_user(&mut self, user_id: PubKey, admin_user_pk: PrivKey) {}
 
-    async fn add_client(&mut self) {}
+    async fn add_client(&mut self, user_id: PubKey, admin_user_pk: PrivKey) {}
 
-    async fn del_client(&mut self) {}
+    async fn del_client(&mut self, user_id: PubKey, admin_user_pk: PrivKey) {}
 
     async fn overlay_connect(
         &mut self,
         repo_link: &RepoLink,
         public: bool,
     ) -> Result<OverlayConnectionClient<BrokerConnectionLocal<'a>>, ProtocolError> {
-        let overlay =
-            OverlayConnectionClient::<BrokerConnectionLocal<'a>>::overlay(repo_link, public);
+        let overlay = self.process_overlay_connect(repo_link, public).await?;
         Ok(OverlayConnectionClient {
             broker: self,
             repo_link: repo_link.clone(),
@@ -490,6 +530,16 @@ impl ConnectionRemote {
         unimplemented!();
     }
 
+    async fn close<S>(w: S, err: ProtocolError) -> ProtocolError
+    where
+        S: Sink<Vec<u8>, Error = ProtocolError>,
+    {
+        let mut writer = Box::pin(w);
+        let _ = writer.send(vec![]);
+        let _ = writer.close();
+        err
+    }
+
     // FIXME return ProtocolError instead of panic via unwrap()
     pub async fn open_broker_connection<
         B: Stream<Item = Vec<u8>> + StreamExt + Send + Sync + 'static,
@@ -510,7 +560,7 @@ impl ConnectionRemote {
         let mut reader = Box::pin(r);
         let answer = reader.next().await;
         if answer.is_none() {
-            return Err(ProtocolError::InvalidState);
+            return Err(Self::close(writer, ProtocolError::InvalidState).await);
         }
 
         let server_hello = serde_bare::from_slice::<ServerHello>(&answer.unwrap()).unwrap();
@@ -535,7 +585,8 @@ impl ConnectionRemote {
 
         let answer = reader.next().await;
         if answer.is_none() {
-            return Err(ProtocolError::InvalidState);
+            //return Err(ProtocolError::InvalidState);
+            return Err(Self::close(writer, ProtocolError::InvalidState).await);
         }
 
         let auth_result = serde_bare::from_slice::<AuthResult>(&answer.unwrap()).unwrap();
@@ -543,19 +594,28 @@ impl ConnectionRemote {
         match auth_result.result() {
             0 => {
                 async fn transform(message: BrokerMessage) -> Result<Vec<u8>, ProtocolError> {
-                    Ok(serde_bare::to_vec(&message).unwrap())
+                    if message.is_close() {
+                        Ok(vec![])
+                    } else {
+                        Ok(serde_bare::to_vec(&message).unwrap())
+                    }
                 }
                 let messages_stream_write = writer.with(|message| transform(message));
 
-                let mut messages_stream_read = reader
-                    .map(|message| serde_bare::from_slice::<BrokerMessage>(&message).unwrap());
+                let mut messages_stream_read = reader.map(|message| {
+                    if message.len() == 0 {
+                        BrokerMessage::Close
+                    } else {
+                        serde_bare::from_slice::<BrokerMessage>(&message).unwrap()
+                    }
+                });
 
                 let cnx =
                     BrokerConnectionRemote::open(messages_stream_write, messages_stream_read, user);
 
                 Ok(cnx)
             }
-            err => Err(ProtocolError::try_from(err).unwrap()),
+            err => Err(Self::close(writer, ProtocolError::try_from(err).unwrap()).await),
         }
     }
 }
@@ -577,6 +637,11 @@ where
 {
     type OC = BrokerConnectionRemote<T>;
     type BlockStream = async_channel::Receiver<Block>;
+
+    async fn close(&mut self) {
+        let _ = self.writer.send(BrokerMessage::Close).await;
+        let _ = self.writer.close();
+    }
 
     async fn process_overlay_request_stream_response(
         &mut self,
@@ -732,52 +797,18 @@ where
         reply.into()
     }
 
-    async fn del_user(&mut self) {}
+    async fn del_user(&mut self, user_id: PubKey, admin_user_pk: PrivKey) {}
 
-    async fn add_client(&mut self) {}
+    async fn add_client(&mut self, client_id: ClientId, user_pk: PrivKey) {}
 
-    async fn del_client(&mut self) {}
+    async fn del_client(&mut self, client_id: ClientId, user_pk: PrivKey) {}
 
     async fn overlay_connect(
         &mut self,
         repo_link: &RepoLink,
         public: bool,
     ) -> Result<OverlayConnectionClient<BrokerConnectionRemote<T>>, ProtocolError> {
-        // sending OverlayConnect
-        let overlay =
-            OverlayConnectionClient::<BrokerConnectionRemote<T>>::overlay(repo_link, public);
-        let res = self
-            .process_overlay_request(
-                overlay,
-                BrokerOverlayRequestContentV0::OverlayConnect(OverlayConnect::V0()),
-            )
-            .await;
-
-        match res {
-            Err(e) => {
-                if e == ProtocolError::OverlayNotJoined {
-                    debug_println!("OverlayNotJoined");
-                    let res2 = self
-                        .process_overlay_request(
-                            overlay,
-                            BrokerOverlayRequestContentV0::OverlayJoin(OverlayJoin::V0(
-                                OverlayJoinV0 {
-                                    secret: repo_link.secret(),
-                                    peers: repo_link.peers(),
-                                    repo_pubkey: None,
-                                    repo_secret: None,
-                                },
-                            )),
-                        )
-                        .await?;
-                } else {
-                    return Err(e);
-                }
-            }
-            Ok(()) => {}
-        }
-
-        debug_println!("OverlayConnectionClient ready");
+        let overlay = self.process_overlay_connect(repo_link, public).await?;
 
         Ok(OverlayConnectionClient {
             broker: self,
@@ -786,8 +817,6 @@ where
         })
     }
 }
-
-type OkResult<T> = std::result::Result<T, Box<dyn std::error::Error + Send + Sync>>;
 
 impl<T> BrokerConnectionRemote<T>
 where
@@ -799,16 +828,21 @@ where
         stream: U,
         actors: Arc<RwLock<HashMap<u64, WeakAddr<BrokerMessageActor>>>>,
         stream_actors: Arc<RwLock<HashMap<u64, WeakAddr<BrokerMessageStreamActor>>>>,
-    ) -> OkResult<()> {
+    ) -> Result<(), ProtocolError> {
         let mut s = stream;
         while let Some(message) = s.next().await {
             //debug_println!("GOT MESSAGE {:?}", message);
+
+            if message.is_close() {
+                return Err(ProtocolError::Closing);
+            }
 
             // TODO check FSM
 
             if message.is_request() {
                 debug_println!("is request {}", message.id());
-                // TODO close connection. a client is not supposed to receive requests.
+                return Err(ProtocolError::Closing);
+                // close connection. a client is not supposed to receive requests.
             } else if message.is_response() {
                 let id = message.id();
                 //debug_println!("is response for {}", id);
@@ -818,10 +852,12 @@ where
                         Some(weak_addr) => match weak_addr.upgrade() {
                             Some(addr) => {
                                 addr.send(BrokerMessageXActor(message))
-                                    .expect("sending message back to actor failed");
+                                    .map_err(|e| ProtocolError::Closing)?
+                                //.expect("sending message back to actor failed");
                             }
                             None => {
                                 debug_println!("ERROR. Addr is dead for ID {}", id);
+                                return Err(ProtocolError::Closing);
                             }
                         },
                         None => {
@@ -830,14 +866,21 @@ where
                                 Some(weak_addr) => match weak_addr.upgrade() {
                                     Some(addr) => {
                                         addr.send(BrokerMessageXActor(message))
-                                            .expect("sending message back to stream actor failed");
+                                            .map_err(|e| ProtocolError::Closing)?
+                                        //.expect("sending message back to stream actor failed");
                                     }
                                     None => {
-                                        debug_println!("ERROR. Addr is dead for ID {}", id);
+                                        debug_println!(
+                                            "ERROR. Addr is dead for ID {} {:?}",
+                                            id,
+                                            message
+                                        );
+                                        return Err(ProtocolError::Closing);
                                     }
                                 },
                                 None => {
-                                    debug_println!("Actor ID not found {}", id);
+                                    debug_println!("Actor ID not found {} {:?}", id, message);
+                                    return Err(ProtocolError::Closing);
                                 }
                             }
                         }
@@ -866,8 +909,11 @@ where
                 Self::connection_reader_loop(reader, actors_in_thread, stream_actors_in_thread)
                     .await
             {
-                eprintln!("{}", e)
+                debug_println!("closing {}", e);
+                // TODO close
+                //Box::pin(writer).close();
             }
+            debug_println!("end of reader loop");
         });
 
         BrokerConnectionRemote::<T> {

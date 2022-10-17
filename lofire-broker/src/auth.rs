@@ -1,4 +1,9 @@
+use std::pin::Pin;
+
 use debug_print::*;
+use futures::future::BoxFuture;
+use futures::future::OptionFuture;
+use futures::FutureExt;
 use lofire::types::*;
 use lofire::utils::*;
 use lofire_net::errors::*;
@@ -73,13 +78,19 @@ impl AuthProtocolHandler {
             .consume(&AuthProtocolServerInput::ServerHelloSent)
             .map_err(|_e| ProtocolError::InvalidState)?;
 
-        debug_println!("sending nonce to client: {:?}", self.nonce);
+        //debug_println!("sending nonce to client: {:?}", self.nonce);
 
         Ok(serde_bare::to_vec(&reply).unwrap())
     }
 
     // FIXME return ProtocolError instead of panic via unwrap()
-    pub fn handle_incoming(&mut self, frame: Vec<u8>) -> Vec<Result<Vec<u8>, ProtocolError>> {
+    pub fn handle_incoming(
+        &mut self,
+        frame: Vec<u8>,
+    ) -> (
+        Result<Vec<u8>, ProtocolError>,
+        Pin<Box<OptionFuture<BoxFuture<'static, u16>>>>,
+    ) {
         fn prepare_reply(res: Result<Vec<u8>, ProtocolError>) -> AuthResult {
             let (result, metadata) = match res {
                 Ok(m) => (0, m),
@@ -112,11 +123,11 @@ impl AuthProtocolHandler {
                     )
                     .map_err(|_e| ProtocolError::AccessDenied)?;
 
-                    debug_println!(
-                        "matching nonce : {:?} {:?}",
-                        message.nonce(),
-                        handler.nonce.as_ref().unwrap()
-                    );
+                    // debug_println!(
+                    //     "matching nonce : {:?} {:?}",
+                    //     message.nonce(),
+                    //     handler.nonce.as_ref().unwrap()
+                    // );
 
                     if message.nonce() != handler.nonce.as_ref().unwrap() {
                         let _ = handler
@@ -146,10 +157,16 @@ impl AuthProtocolHandler {
         let res = process_state(self, frame);
         let is_err = res.as_ref().err().cloned();
         let reply = prepare_reply(res);
-        let mut reply_vector = vec![Ok(serde_bare::to_vec(&reply).unwrap())];
+        let reply_ser: Result<Vec<u8>, ProtocolError> = Ok(serde_bare::to_vec(&reply).unwrap());
         if is_err.is_some() {
-            reply_vector.push(Err(is_err.unwrap()));
+            (
+                reply_ser,
+                Box::pin(OptionFuture::from(Some(
+                    async move { reply.result() }.boxed(),
+                ))),
+            )
+        } else {
+            (reply_ser, Box::pin(OptionFuture::from(None)))
         }
-        reply_vector
     }
 }

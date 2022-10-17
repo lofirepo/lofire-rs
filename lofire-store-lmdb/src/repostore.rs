@@ -18,7 +18,7 @@ use rkv::{
 use serde::{Deserialize, Serialize};
 use serde_bare::error::Error;
 
-pub struct LmdbStore {
+pub struct LmdbRepoStore {
     /// the main store where all the repo blocks are stored
     main_store: SingleStore<LmdbDatabase>,
     /// store for the pin boolean, recently_used timestamp, and synced boolean
@@ -39,7 +39,7 @@ struct BlockMeta {
     pub synced: bool,
 }
 
-impl Store for LmdbStore {
+impl RepoStore for LmdbRepoStore {
     /// Retrieves a block from the storage backend.
     fn get(&self, block_id: &BlockId) -> Result<Block, StoreGetError> {
         let lock = self.environment.read().unwrap();
@@ -115,57 +115,12 @@ impl Store for LmdbStore {
     fn copy(&mut self, id: ObjectId, expiry: Option<Timestamp>) -> Result<ObjectId, StoreGetError> {
         self._copy(id, expiry)
     }
-
-    /// Load an account from the store.
-    fn get_account(&self, id: &PubKey) -> Result<Vec<u8>, StoreGetError> {
-        todo!()
-    }
-
-    /// Save an account to the store.
-    fn put_account(&mut self, id: PubKey, account: Vec<u8>) -> Result<(), StorePutError> {
-        todo!()
-    }
-
-    /// Delete an account from the store.
-    fn del_account(&mut self, id: &PubKey) -> Result<Vec<u8>, StoreDelError> {
-        todo!()
-    }
-
-    /// Load an account from the store.
-    fn get_overlay(&self, id: &Digest) -> Result<Vec<u8>, StoreGetError> {
-        todo!()
-    }
-
-    /// Save an account to the store.
-    fn put_overlay(&mut self, id: Digest, account: Vec<u8>) -> Result<(), StorePutError> {
-        todo!()
-    }
-
-    /// Delete an account from the store.
-    fn del_overlay(&mut self, id: &Digest) -> Result<Vec<u8>, StoreDelError> {
-        todo!()
-    }
-
-    /// Load an account from the store.
-    fn get_topic(&self, id: &PubKey) -> Result<Vec<u8>, StoreGetError> {
-        todo!()
-    }
-
-    /// Save an account to the store.
-    fn put_topic(&mut self, id: PubKey, account: Vec<u8>) -> Result<(), StorePutError> {
-        todo!()
-    }
-
-    /// Delete an account from the store.
-    fn del_topic(&mut self, id: &PubKey) -> Result<Vec<u8>, StoreDelError> {
-        todo!()
-    }
 }
 
-impl LmdbStore {
-    /// Opens the store and returns a Store object that should be kept and used to call put/get/delete/pin
+impl LmdbRepoStore {
+    /// Opens the store and returns a RepoStore object that should be kept and used to call put/get/delete/pin
     /// The key is the encryption key for the data at rest.
-    pub fn open<'a>(path: &Path, key: [u8; 32]) -> LmdbStore {
+    pub fn open<'a>(path: &Path, key: [u8; 32]) -> LmdbRepoStore {
         let mut manager = Manager::<LmdbEnvironment>::singleton().write().unwrap();
         let shared_rkv = manager
             .get_or_create(path, |path| {
@@ -175,7 +130,11 @@ impl LmdbStore {
             .unwrap();
         let env = shared_rkv.read().unwrap();
 
-        println!("created env with LMDB Version: {}", env.version());
+        println!(
+            "created env with LMDB Version: {} key: {}",
+            env.version(),
+            hex::encode(&key)
+        );
 
         let main_store = env.open_single("main", StoreOptions::create()).unwrap();
         let meta_store = env.open_single("meta", StoreOptions::create()).unwrap();
@@ -184,7 +143,7 @@ impl LmdbStore {
         let expiry_store = env.open_multi_integer("expiry", opts).unwrap();
         let recently_used_store = env.open_multi_integer("recently_used", opts).unwrap();
 
-        LmdbStore {
+        LmdbRepoStore {
             environment: shared_rkv.clone(),
             main_store,
             meta_store,
@@ -545,7 +504,7 @@ impl LmdbStore {
 #[cfg(test)]
 mod test {
 
-    use crate::store::LmdbStore;
+    use crate::repostore::LmdbRepoStore;
     use lofire::store::*;
     use lofire::types::*;
     use lofire::utils::*;
@@ -564,7 +523,7 @@ mod test {
         let key: [u8; 32] = [0; 32];
         fs::create_dir_all(root.path()).unwrap();
         println!("{}", root.path().to_str().unwrap());
-        let mut store = LmdbStore::open(root.path(), key);
+        let mut store = LmdbRepoStore::open(root.path(), key);
         let mut now = now_timestamp();
         now -= 200;
         // TODO: fix the LMDB bug that is triggered with x max set to 86 !!!
@@ -596,7 +555,7 @@ mod test {
         let key: [u8; 32] = [0; 32];
         fs::create_dir_all(root.path()).unwrap();
         println!("{}", root.path().to_str().unwrap());
-        let mut store = LmdbStore::open(root.path(), key);
+        let mut store = LmdbRepoStore::open(root.path(), key);
         let mut now = now_timestamp();
         now -= 200;
         // TODO: fix the LMDB bug that is triggered with x max set to 86 !!!
@@ -652,7 +611,7 @@ mod test {
         let key: [u8; 32] = [0; 32];
         fs::create_dir_all(root.path()).unwrap();
         println!("{}", root.path().to_str().unwrap());
-        let mut store = LmdbStore::open(root.path(), key);
+        let mut store = LmdbRepoStore::open(root.path(), key);
 
         let now = now_timestamp();
         let list = [
@@ -705,7 +664,7 @@ mod test {
         let key: [u8; 32] = [0; 32];
         fs::create_dir_all(root.path()).unwrap();
         println!("{}", root.path().to_str().unwrap());
-        let mut store = LmdbStore::open(root.path(), key);
+        let mut store = LmdbRepoStore::open(root.path(), key);
 
         let now = now_timestamp();
         let list = [
@@ -751,7 +710,7 @@ mod test {
         let key: [u8; 32] = [0; 32];
         fs::create_dir_all(root.path()).unwrap();
         println!("{}", root.path().to_str().unwrap());
-        let mut store = LmdbStore::open(root.path(), key);
+        let mut store = LmdbRepoStore::open(root.path(), key);
 
         store.remove_expired();
     }
@@ -766,7 +725,7 @@ mod test {
 
         println!("{}", root.path().to_str().unwrap());
 
-        let mut store = LmdbStore::open(root.path(), key);
+        let mut store = LmdbRepoStore::open(root.path(), key);
 
         let block = BlockV0 {
             children: Vec::new(),

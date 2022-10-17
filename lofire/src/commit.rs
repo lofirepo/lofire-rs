@@ -118,7 +118,7 @@ impl Commit {
     }
 
     /// Load commit from store
-    pub fn load(commit_ref: ObjectRef, store: &impl Store) -> Result<Commit, CommitLoadError> {
+    pub fn load(commit_ref: ObjectRef, store: &impl RepoStore) -> Result<Commit, CommitLoadError> {
         let (id, key) = (commit_ref.id, commit_ref.key);
         match Object::from_store(id, Some(key), store) {
             Ok(obj) => {
@@ -138,7 +138,7 @@ impl Commit {
     }
 
     /// Load commit body from store
-    pub fn load_body(&self, store: &impl Store) -> Result<CommitBody, CommitLoadError> {
+    pub fn load_body(&self, store: &impl RepoStore) -> Result<CommitBody, CommitLoadError> {
         let content = self.content();
         let (id, key) = (content.body.id, content.body.key);
         let obj = Object::from_store(id.clone(), Some(key.clone()), store)
@@ -254,13 +254,13 @@ impl Commit {
     }
 
     /// Verify if the commit's `body` and dependencies (`deps` & `acks`) are available in the `store`
-    pub fn verify_deps(&self, store: &impl Store) -> Result<Vec<ObjectId>, CommitLoadError> {
+    pub fn verify_deps(&self, store: &impl RepoStore) -> Result<Vec<ObjectId>, CommitLoadError> {
         debug_println!(">> verify_deps: #{}", self.seq());
-        /// Load `Commit`s of a `Branch` from the `Store` starting from the given `Commit`,
+        /// Load `Commit`s of a `Branch` from the `RepoStore` starting from the given `Commit`,
         /// and collect missing `ObjectId`s
         fn load_branch(
             commit: &Commit,
-            store: &impl Store,
+            store: &impl RepoStore,
             visited: &mut HashSet<ObjectId>,
             missing: &mut HashSet<ObjectId>,
         ) -> Result<(), CommitLoadError> {
@@ -316,7 +316,7 @@ impl Commit {
     }
 
     /// Verify signature, permissions, and dependencies
-    pub fn verify(&self, branch: &Branch, store: &impl Store) -> Result<(), CommitVerifyError> {
+    pub fn verify(&self, branch: &Branch, store: &impl RepoStore) -> Result<(), CommitVerifyError> {
         self.verify_sig()
             .map_err(|_e| CommitVerifyError::InvalidSignature)?;
         let body = self
@@ -378,7 +378,7 @@ mod test {
         .unwrap();
         println!("commit: {:?}", commit);
 
-        let store = HashMapStore::new();
+        let store = HashMapRepoStore::new();
         let metadata = [66u8; 64].to_vec();
         let commit_types = vec![CommitType::Ack, CommitType::Transaction];
         let key: [u8; 32] = [0; 32];

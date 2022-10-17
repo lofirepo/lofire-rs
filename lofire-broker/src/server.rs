@@ -1,20 +1,69 @@
 //! A Broker server
 
+use std::collections::HashMap;
 use std::collections::HashSet;
+use std::pin::Pin;
 use std::sync::Arc;
+use std::sync::RwLock;
 
+use crate::account::Account;
 use crate::auth::*;
+use crate::config::Config;
+use crate::config::ConfigMode;
 use crate::connection::BrokerConnectionLocal;
+use crate::overlay::Overlay;
+use crate::peer::Peer;
+use crate::repostoreinfo::RepoStoreId;
+use crate::repostoreinfo::RepoStoreInfo;
 use async_std::task;
 use debug_print::*;
+use futures::future::BoxFuture;
+use futures::future::OptionFuture;
+use futures::FutureExt;
 use futures::Stream;
 use lofire::object::Object;
-use lofire::store::Store;
+use lofire::store::RepoStore;
+use lofire::store::StoreGetError;
 use lofire::types::*;
 use lofire::utils::*;
 use lofire_net::errors::*;
 use lofire_net::types::*;
-use lofire_store_lmdb::store::LmdbStore;
+use lofire_store_lmdb::brokerstore::LmdbBrokerStore;
+use lofire_store_lmdb::repostore::LmdbRepoStore;
+
+#[derive(Debug, Eq, PartialEq, Clone)]
+pub enum BrokerError {
+    CannotStart,
+    MismatchedMode,
+    OverlayNotFound,
+}
+
+impl From<BrokerError> for ProtocolError {
+    fn from(e: BrokerError) -> Self {
+        match e {
+            BrokerError::CannotStart => ProtocolError::OverlayNotFound,
+            BrokerError::OverlayNotFound => ProtocolError::OverlayNotFound,
+            _ => ProtocolError::BrokerError,
+        }
+    }
+}
+
+impl From<lofire::store::StorePutError> for BrokerError {
+    fn from(e: lofire::store::StorePutError) -> Self {
+        match e {
+            lofire::store::StorePutError::InvalidValue => BrokerError::MismatchedMode,
+            _ => BrokerError::CannotStart,
+        }
+    }
+}
+
+impl From<lofire::store::StoreGetError> for BrokerError {
+    fn from(e: lofire::store::StoreGetError) -> Self {
+        match e {
+            _ => BrokerError::CannotStart,
+        }
+    }
+}
 
 #[derive(Debug)]
 enum ProtocolType {
@@ -42,8 +91,14 @@ impl ProtocolHandler {
 
     /// Handle incoming message
     // FIXME return ProtocolError instead of panic via unwrap()
-    pub fn handle_incoming(&mut self, frame: Vec<u8>) -> Vec<Result<Vec<u8>, ProtocolError>> {
-        debug_println!("SERVER PROTOCOL {:?}", &self.protocol);
+    pub async fn handle_incoming(
+        &mut self,
+        frame: Vec<u8>,
+    ) -> (
+        Result<Vec<u8>, ProtocolError>,
+        OptionFuture<BoxFuture<'static, u16>>,
+    ) {
+        //debug_println!("SERVER PROTOCOL {:?}", &self.protocol);
         match &self.protocol {
             ProtocolType::Start => {
                 let message = serde_bare::from_slice::<StartProtocol>(&frame).unwrap();
@@ -51,29 +106,38 @@ impl ProtocolHandler {
                     StartProtocol::Auth(b) => {
                         self.protocol = ProtocolType::Auth;
                         self.auth_protocol = Some(AuthProtocolHandler::new());
-                        vec![self.auth_protocol.as_mut().unwrap().handle_init(b)]
+                        return (
+                            self.auth_protocol.as_mut().unwrap().handle_init(b),
+                            OptionFuture::from(None),
+                        );
                     }
                     StartProtocol::Ext(ext) => {
                         self.protocol = ProtocolType::Ext;
                         self.ext_protocol = Some(ExtProtocolHandler {});
                         let reply = self.ext_protocol.as_ref().unwrap().handle_incoming(ext);
-                        vec![Ok(serde_bare::to_vec(&reply).unwrap())]
+                        return (
+                            Ok(serde_bare::to_vec(&reply).unwrap()),
+                            OptionFuture::from(None),
+                        );
                     }
                 }
             }
             ProtocolType::Auth => {
                 let res = self.auth_protocol.as_mut().unwrap().handle_incoming(frame);
-                if res.last().unwrap().is_ok() {
-                    // we switch to Broker protocol
-                    self.protocol = ProtocolType::Broker;
-                    self.broker_protocol = Some(BrokerProtocolHandler {
-                        user: self.auth_protocol.as_ref().unwrap().get_user().unwrap(),
-                        broker: Arc::clone(&self.broker),
-                        async_frames_sender: self.s.clone(),
-                    });
-                    self.auth_protocol = None;
+                match res.1.await {
+                    None => {
+                        // we switch to Broker protocol
+                        self.protocol = ProtocolType::Broker;
+                        self.broker_protocol = Some(BrokerProtocolHandler {
+                            user: self.auth_protocol.as_ref().unwrap().get_user().unwrap(),
+                            broker: Arc::clone(&self.broker),
+                            async_frames_sender: self.s.clone(),
+                        });
+                        self.auth_protocol = None;
+                        (res.0, OptionFuture::from(None))
+                    }
+                    Some(e) => (res.0, OptionFuture::from(Some(async move { e }.boxed()))),
                 }
-                res
             }
             ProtocolType::Broker => {
                 let message = serde_bare::from_slice::<BrokerMessage>(&frame).unwrap();
@@ -82,12 +146,12 @@ impl ProtocolHandler {
                     .as_ref()
                     .unwrap()
                     .handle_incoming(message);
-                vec![Ok(serde_bare::to_vec(&reply).unwrap())]
+                (Ok(serde_bare::to_vec(&reply.0).unwrap()), reply.1)
             }
             ProtocolType::Ext => {
                 // Ext protocol is not accepting 2 extrequest in the same connection.
                 // TODO, close the connection
-                vec![Err(ProtocolError::InvalidState)]
+                (Err(ProtocolError::InvalidState), OptionFuture::from(None))
             }
             ProtocolType::P2P => {
                 unimplemented!()
@@ -195,7 +259,10 @@ impl BrokerProtocolHandler {
         msg
     }
 
-    pub fn handle_incoming(&self, msg: BrokerMessage) -> BrokerMessage {
+    pub fn handle_incoming(
+        &self,
+        msg: BrokerMessage,
+    ) -> (BrokerMessage, OptionFuture<BoxFuture<'static, u16>>) {
         // TODO check FSM
 
         let padding_size = 20; // TODO randomize, if config of server contains padding_max
@@ -203,28 +270,34 @@ impl BrokerProtocolHandler {
         let id = msg.id();
         let content = msg.content();
         match content {
-            BrokerMessageContentV0::BrokerRequest(req) => Self::prepare_reply_broker_message(
-                match req.content_v0() {
-                    BrokerRequestContentV0::AddUser(cmd) => {
-                        self.broker.add_user(cmd.user(), self.user, cmd.sig())
-                    }
-                    BrokerRequestContentV0::DelUser(cmd) => {
-                        self.broker.del_user(cmd.user(), cmd.sig())
-                    }
-                    BrokerRequestContentV0::AddClient(cmd) => {
-                        self.broker.add_client(cmd.client(), cmd.sig())
-                    }
-                    BrokerRequestContentV0::DelClient(cmd) => {
-                        self.broker.del_client(cmd.client(), cmd.sig())
-                    }
-                },
-                id,
-                padding_size,
+            BrokerMessageContentV0::BrokerRequest(req) => (
+                Self::prepare_reply_broker_message(
+                    match req.content_v0() {
+                        BrokerRequestContentV0::AddUser(cmd) => {
+                            self.broker.add_user(self.user, cmd.user(), cmd.sig())
+                        }
+                        BrokerRequestContentV0::DelUser(cmd) => {
+                            self.broker.del_user(self.user, cmd.user(), cmd.sig())
+                        }
+                        BrokerRequestContentV0::AddClient(cmd) => {
+                            self.broker.add_client(self.user, cmd.client(), cmd.sig())
+                        }
+                        BrokerRequestContentV0::DelClient(cmd) => {
+                            self.broker.del_client(self.user, cmd.client(), cmd.sig())
+                        }
+                    },
+                    id,
+                    padding_size,
+                ),
+                OptionFuture::from(None),
             ),
-            BrokerMessageContentV0::BrokerResponse(res) => Self::prepare_reply_broker_message(
-                Err(ProtocolError::InvalidState),
-                id,
-                padding_size,
+            BrokerMessageContentV0::BrokerResponse(res) => (
+                Self::prepare_reply_broker_message(
+                    Err(ProtocolError::InvalidState),
+                    id,
+                    padding_size,
+                ),
+                OptionFuture::from(None),
             ),
             BrokerMessageContentV0::BrokerOverlayMessage(omsg) => {
                 let overlay = omsg.overlay_id();
@@ -234,34 +307,44 @@ impl BrokerProtocolHandler {
                 if omsg.is_request() {
                     match omsg.overlay_request().content_v0() {
                         BrokerOverlayRequestContentV0::OverlayConnect(_) => {
-                            res = self.broker.overlay_connect(overlay)
+                            res = self.broker.overlay_connect(self.user, overlay)
                         }
                         BrokerOverlayRequestContentV0::OverlayJoin(j) => {
-                            res = self.broker.overlay_join(overlay, j.secret(), j.peers())
+                            res = self.broker.overlay_join(
+                                self.user,
+                                overlay,
+                                j.repo_pubkey(),
+                                j.secret(),
+                                j.peers(),
+                            )
                         }
                         BrokerOverlayRequestContentV0::ObjectDel(op) => {
-                            res = self.broker.del_object(overlay, op.id())
+                            res = self.broker.del_object(self.user, overlay, op.id())
                         }
                         BrokerOverlayRequestContentV0::ObjectPin(op) => {
-                            res = self.broker.pin_object(overlay, op.id())
+                            res = self.broker.pin_object(self.user, overlay, op.id())
                         }
                         BrokerOverlayRequestContentV0::ObjectUnpin(op) => {
-                            res = self.broker.unpin_object(overlay, op.id())
+                            res = self.broker.unpin_object(self.user, overlay, op.id())
                         }
                         BrokerOverlayRequestContentV0::BlockPut(b) => {
-                            res = self.broker.block_put(overlay, b.block())
+                            res = self.broker.block_put(self.user, overlay, b.block())
                         }
                         // TODO BranchSyncReq
                         BrokerOverlayRequestContentV0::BlockGet(b) => {
                             let res = self.broker.block_get(
+                                self.user,
                                 overlay,
                                 b.id(),
                                 b.include_children(),
                                 b.topic(),
                             );
                             // return an error or the first block, and setup a spawner for the remaining blocks to be sent.
-                            let one_reply = match res {
-                                Err(e) => Err(e),
+                            let one_reply: (
+                                Result<Block, ProtocolError>,
+                                OptionFuture<BoxFuture<'static, u16>>,
+                            ) = match res {
+                                Err(e) => (Err(e), OptionFuture::from(None)),
                                 Ok(stream) => {
                                     let one = stream
                                         .recv_blocking()
@@ -269,14 +352,14 @@ impl BrokerProtocolHandler {
 
                                     if one.is_ok() {
                                         let sender = self.async_frames_sender.clone();
-                                        task::spawn(async move {
+                                        let a = OptionFuture::from(Some(async move {
                                             while let Ok(next) = stream.recv().await {
                                                 let msg= Self::prepare_reply_broker_overlay_message_stream(
-                                                    Ok(next),
-                                                    id,
-                                                    overlay,
-                                                    padding_size,
-                                                );
+                                                        Ok(next),
+                                                        id,
+                                                        overlay,
+                                                        padding_size,
+                                                    );
                                                 let res = sender
                                                     .send(serde_bare::to_vec(&msg).unwrap())
                                                     .await;
@@ -295,36 +378,150 @@ impl BrokerProtocolHandler {
                                             let _ = sender
                                                 .send(serde_bare::to_vec(&msg).unwrap())
                                                 .await;
-                                        });
+                                            0
+                                        }.boxed()));
+                                        (one, a)
+                                    } else {
+                                        (one, OptionFuture::from(None))
                                     }
-                                    one
                                 }
                             };
-
-                            return Self::prepare_reply_broker_overlay_message_stream(
-                                one_reply,
-                                id,
-                                overlay,
-                                padding_size,
+                            std::thread::sleep(std::time::Duration::from_secs(4));
+                            return (
+                                Self::prepare_reply_broker_overlay_message_stream(
+                                    one_reply.0,
+                                    id,
+                                    overlay,
+                                    padding_size,
+                                ),
+                                one_reply.1,
                             );
                         }
                         _ => {}
                     }
                 }
 
-                Self::prepare_reply_broker_overlay_message(res, id, overlay, block, padding_size)
+                (
+                    Self::prepare_reply_broker_overlay_message(
+                        res,
+                        id,
+                        overlay,
+                        block,
+                        padding_size,
+                    ),
+                    OptionFuture::from(None),
+                )
             }
         }
     }
 }
 
+const REPO_STORES_SUBDIR: &str = "repos";
+
 pub struct BrokerServer {
-    store: LmdbStore,
+    store: LmdbBrokerStore,
+    mode: ConfigMode,
+    repo_stores: Arc<RwLock<HashMap<RepoStoreId, LmdbRepoStore>>>,
+    // only used in ConfigMode::Local
+    // try to change it to this version below in order to avoid double hashmap lookup in local mode. but hard to do...
+    //overlayid_to_repostore: HashMap<RepoStoreId, &'a LmdbRepoStore>,
+    overlayid_to_repostore: Arc<RwLock<HashMap<OverlayId, RepoStoreId>>>,
 }
 
 impl BrokerServer {
-    pub const fn new(store: LmdbStore) -> BrokerServer {
-        BrokerServer { store }
+    pub fn new(store: LmdbBrokerStore, mode: ConfigMode) -> Result<BrokerServer, BrokerError> {
+        let mut configmode: ConfigMode;
+        {
+            let config = Config::get_or_create(&mode, &store)?;
+            configmode = config.mode()?;
+        }
+        Ok(BrokerServer {
+            store,
+            mode: configmode,
+            repo_stores: Arc::new(RwLock::new(HashMap::new())),
+            overlayid_to_repostore: Arc::new(RwLock::new(HashMap::new())),
+        })
+    }
+
+    fn open_or_create_repostore<F, R>(
+        &self,
+        repostore_id: RepoStoreId,
+        f: F,
+    ) -> Result<R, ProtocolError>
+    where
+        F: FnOnce(&LmdbRepoStore) -> Result<R, ProtocolError>,
+    {
+        // first let's find it in the BrokerStore.repostoreinfo table in order to get the encryption key
+        let info = RepoStoreInfo::open(&repostore_id, &self.store)
+            .map_err(|e| BrokerError::OverlayNotFound)?;
+        let key = info.key()?;
+        let mut path = self.store.path();
+        path.push(REPO_STORES_SUBDIR);
+        path.push::<String>(repostore_id.clone().into());
+        std::fs::create_dir_all(path.clone()).unwrap();
+        println!("path for repo store: {}", path.to_str().unwrap());
+        let repo = LmdbRepoStore::open(&path, *key.slice());
+        let mut writer = self.repo_stores.write().expect("write repo_store hashmap");
+        writer.insert(repostore_id.clone(), repo);
+
+        f(writer.get(&repostore_id).unwrap())
+    }
+
+    fn get_repostore_from_overlay_id<F, R>(
+        &self,
+        overlay_id: &OverlayId,
+        f: F,
+    ) -> Result<R, ProtocolError>
+    where
+        F: FnOnce(&LmdbRepoStore) -> Result<R, ProtocolError>,
+    {
+        if self.mode == ConfigMode::Core {
+            let repostore_id = RepoStoreId::Overlay(*overlay_id);
+            let reader = self.repo_stores.read().expect("read repo_store hashmap");
+            let rep = reader.get(&repostore_id);
+            match rep {
+                Some(repo) => return f(repo),
+                None => {
+                    // we need to open/create it
+                    // TODO: last_access
+                    return self.open_or_create_repostore(repostore_id, |repo| f(repo));
+                }
+            }
+        } else {
+            // it is ConfigMode::Local
+            {
+                let reader = self
+                    .overlayid_to_repostore
+                    .read()
+                    .expect("read overlayid_to_repostore hashmap");
+                match reader.get(&overlay_id) {
+                    Some(repostoreid) => {
+                        let reader = self.repo_stores.read().expect("read repo_store hashmap");
+                        match reader.get(repostoreid) {
+                            Some(repo) => return f(repo),
+                            None => return Err(ProtocolError::BrokerError),
+                        }
+                    }
+                    None => {}
+                };
+            }
+
+            // we need to open/create it
+            // first let's find it in the BrokerStore.overlay table to retrieve its repo_pubkey
+            debug_println!("searching for overlayId {}", overlay_id);
+            let overlay = Overlay::open(overlay_id, &self.store)?;
+            debug_println!("found overlayId {}", overlay_id);
+            let repo_id = overlay.repo()?;
+            let repostore_id = RepoStoreId::Repo(repo_id);
+            let mut writer = self
+                .overlayid_to_repostore
+                .write()
+                .expect("write overlayid_to_repostore hashmap");
+            writer.insert(*overlay_id, repostore_id.clone());
+            // now opening/creating the RepoStore
+            // TODO: last_access
+            return self.open_or_create_repostore(repostore_id, |repo| f(repo));
+        }
     }
 
     pub fn local_connection(&mut self, user: PubKey) -> BrokerConnectionLocal {
@@ -346,11 +543,12 @@ impl BrokerServer {
 
     pub fn add_user(
         &self,
-        user_id: PubKey,
         admin_user: PubKey,
+        user_id: PubKey,
         sig: Sig,
     ) -> Result<(), ProtocolError> {
         debug_println!("ADDING USER {}", user_id);
+        // TODO add is_admin boolean
         // TODO implement add_user
 
         // check that admin_user is indeed an admin
@@ -360,146 +558,254 @@ impl BrokerServer {
         let _ = verify(&serde_bare::to_vec(&op_content).unwrap(), sig, admin_user)?;
 
         // check user_id is not already present
-
+        let account = Account::open(&user_id, &self.store);
+        if account.is_ok() {
+            Err(ProtocolError::UserAlreadyExists)
+        }
         // if not, add to store
-        Ok(())
+        else {
+            let _ = Account::create(&user_id, false, &self.store)?;
+            Ok(())
+        }
     }
 
-    pub fn del_user(&self, user_id: PubKey, sig: Sig) -> Result<(), ProtocolError> {
+    pub fn del_user(
+        &self,
+        admin_user: PubKey,
+        user_id: PubKey,
+        sig: Sig,
+    ) -> Result<(), ProtocolError> {
         // TODO implement del_user
         Ok(())
     }
-    pub fn add_client(&self, client_id: PubKey, sig: Sig) -> Result<(), ProtocolError> {
+    pub fn add_client(
+        &self,
+        user: PubKey,
+        client_id: PubKey,
+        sig: Sig,
+    ) -> Result<(), ProtocolError> {
         // TODO implement add_client
         Ok(())
     }
 
-    pub fn del_client(&self, client_id: PubKey, sig: Sig) -> Result<(), ProtocolError> {
+    pub fn del_client(
+        &self,
+        user: PubKey,
+        client_id: PubKey,
+        sig: Sig,
+    ) -> Result<(), ProtocolError> {
         // TODO implement del_client
         Ok(())
     }
 
-    pub fn overlay_connect(&self, overlay: Digest) -> Result<(), ProtocolError> {
+    pub fn overlay_connect(&self, user: PubKey, overlay: OverlayId) -> Result<(), ProtocolError> {
         // TODO check that the broker has already joined this overlay. if not, send OverlayNotJoined
         Err(ProtocolError::OverlayNotJoined)
     }
 
-    pub fn del_object(&self, overlay: Digest, id: ObjectId) -> Result<(), ProtocolError> {
-        // TODO do it in the right store. there must be one store by repo (find the repo by the overlayId)
-        // TODO, only admin users can delete on a store on this broker
-        let obj = Object::from_store(id, None, &self.store);
-        if obj.is_err() {
-            return Err(ProtocolError::NotFound);
-        }
-        let o = obj.ok().unwrap();
-        let mut deduplicated: HashSet<ObjectId> = HashSet::new();
-        for block in o.blocks() {
-            let id = block.id();
-            if deduplicated.get(&id).is_none() {
-                self.store._del(&id)?;
-                deduplicated.insert(id);
-            }
-        }
-        Ok(())
-    }
-
-    pub fn pin_object(&self, overlay: Digest, id: ObjectId) -> Result<(), ProtocolError> {
-        // TODO do it in the right store. there must be one store by repo (find the repo by the overlayId)
-        // TODO, store the user who pins, and manage reference counting on how many users pin/unpin
-        let obj = Object::from_store(id, None, &self.store);
-        if obj.is_err() {
-            return Err(ProtocolError::NotFound);
-        }
-        let o = obj.ok().unwrap();
-        let mut deduplicated: HashSet<ObjectId> = HashSet::new();
-        for block in o.blocks() {
-            let id = block.id();
-            if deduplicated.get(&id).is_none() {
-                self.store.pin(&id)?;
-                deduplicated.insert(id);
-            }
-        }
-        Ok(())
-    }
-
-    pub fn unpin_object(&self, overlay: Digest, id: ObjectId) -> Result<(), ProtocolError> {
-        // TODO do it in the right store. there must be one store by repo (find the repo by the overlayId)
-        // TODO, store the user who pins, and manage reference counting on how many users pin/unpin
-        let obj = Object::from_store(id, None, &self.store);
-        if obj.is_err() {
-            return Err(ProtocolError::NotFound);
-        }
-        let o = obj.ok().unwrap();
-        let mut deduplicated: HashSet<ObjectId> = HashSet::new();
-        for block in o.blocks() {
-            let id = block.id();
-            if deduplicated.get(&id).is_none() {
-                self.store.unpin(&id)?;
-                deduplicated.insert(id);
-            }
-        }
-        Ok(())
-    }
-
-    pub fn copy_object(
+    pub fn del_object(
         &self,
-        overlay: Digest,
+        user: PubKey,
+        overlay: OverlayId,
         id: ObjectId,
-        expiry: Option<Timestamp>,
-    ) -> Result<ObjectId, ProtocolError> {
-        //Ok(Object::copy(id, expiry, self.store)?)
-        todo!();
-    }
-
-    pub fn block_put(&self, overlay: Digest, block: &Block) -> Result<(), ProtocolError> {
-        // TODO put in the right store. there must be one store by repo (find the repo by the overlayId)
-        let _ = self.store._put(block)?;
-        Ok(())
-    }
-
-    pub fn block_get(
-        &self,
-        overlay: Digest,
-        id: BlockId,
-        include_children: bool,
-        topic: Option<PubKey>,
-    ) -> Result<async_channel::Receiver<Block>, ProtocolError> {
-        let (s, r) = async_channel::unbounded::<Block>();
-        if !include_children {
-            let block = self.store.get(&id)?;
-            s.send_blocking(block)
-                .map_err(|_e| ProtocolError::CannotSend)?;
-            Ok(r)
-        } else {
-            let obj = Object::from_store(id, None, &self.store);
-            // TODO return partial blocks when some are missing ?
+    ) -> Result<(), ProtocolError> {
+        self.get_repostore_from_overlay_id(&overlay, |store| {
+            // TODO, only admin users can delete on a store on this broker
+            let obj = Object::from_store(id, None, store);
             if obj.is_err() {
-                //&& obj.err().unwrap().len() == 1 && obj.err().unwrap()[0] == id {
                 return Err(ProtocolError::NotFound);
             }
-            // todo, use a task to send non blocking (streaming)
             let o = obj.ok().unwrap();
-            debug_println!("{} BLOCKS ", o.blocks().len());
             let mut deduplicated: HashSet<ObjectId> = HashSet::new();
             for block in o.blocks() {
                 let id = block.id();
                 if deduplicated.get(&id).is_none() {
-                    s.send_blocking(block.clone())
-                        .map_err(|_e| ProtocolError::CannotSend)?;
+                    store._del(&id)?;
                     deduplicated.insert(id);
                 }
             }
-            Ok(r)
+            Ok(())
+        })
+    }
+
+    pub fn pin_object(
+        &self,
+        user: PubKey,
+        overlay: OverlayId,
+        id: ObjectId,
+    ) -> Result<(), ProtocolError> {
+        self.get_repostore_from_overlay_id(&overlay, |store| {
+            // TODO, store the user who pins, and manage reference counting on how many users pin/unpin
+            let obj = Object::from_store(id, None, store);
+            if obj.is_err() {
+                return Err(ProtocolError::NotFound);
+            }
+            let o = obj.ok().unwrap();
+            let mut deduplicated: HashSet<ObjectId> = HashSet::new();
+            for block in o.blocks() {
+                let id = block.id();
+                if deduplicated.get(&id).is_none() {
+                    store.pin(&id)?;
+                    deduplicated.insert(id);
+                }
+            }
+            Ok(())
+        })
+    }
+
+    pub fn unpin_object(
+        &self,
+        user: PubKey,
+        overlay: OverlayId,
+        id: ObjectId,
+    ) -> Result<(), ProtocolError> {
+        self.get_repostore_from_overlay_id(&overlay, |store| {
+            // TODO, store the user who pins, and manage reference counting on how many users pin/unpin
+            let obj = Object::from_store(id, None, store);
+            if obj.is_err() {
+                return Err(ProtocolError::NotFound);
+            }
+            let o = obj.ok().unwrap();
+            let mut deduplicated: HashSet<ObjectId> = HashSet::new();
+            for block in o.blocks() {
+                let id = block.id();
+                if deduplicated.get(&id).is_none() {
+                    store.unpin(&id)?;
+                    deduplicated.insert(id);
+                }
+            }
+            Ok(())
+        })
+    }
+
+    pub fn copy_object(
+        &mut self,
+        user: PubKey,
+        overlay: OverlayId,
+        id: ObjectId,
+        expiry: Option<Timestamp>,
+    ) -> Result<ObjectId, ProtocolError> {
+        //let store = self.get_repostore_from_overlay_id(&overlay)?;
+        //Ok(Object::copy(id, expiry, store)?)
+        todo!();
+    }
+
+    pub fn block_put(
+        &self,
+        user: PubKey,
+        overlay: OverlayId,
+        block: &Block,
+    ) -> Result<(), ProtocolError> {
+        self.get_repostore_from_overlay_id(&overlay, |store| {
+            let _ = store._put(block)?;
+            Ok(())
+        })
+    }
+
+    pub fn block_get(
+        &self,
+        user: PubKey,
+        overlay: OverlayId,
+        id: BlockId,
+        include_children: bool,
+        topic: Option<PubKey>,
+    ) -> Result<async_channel::Receiver<Block>, ProtocolError> {
+        self.get_repostore_from_overlay_id(&overlay, |store| {
+            let (s, r) = async_channel::unbounded::<Block>();
+            if !include_children {
+                let block = store.get(&id)?;
+                s.send_blocking(block)
+                    .map_err(|_e| ProtocolError::CannotSend)?;
+                Ok(r)
+            } else {
+                let obj = Object::from_store(id, None, store);
+                // TODO return partial blocks when some are missing ?
+                if obj.is_err() {
+                    //&& obj.err().unwrap().len() == 1 && obj.err().unwrap()[0] == id {
+                    return Err(ProtocolError::NotFound);
+                }
+                // todo, use a task to send non blocking (streaming)
+                let o = obj.ok().unwrap();
+                //debug_println!("{} BLOCKS ", o.blocks().len());
+                let mut deduplicated: HashSet<ObjectId> = HashSet::new();
+                for block in o.blocks() {
+                    let id = block.id();
+                    if deduplicated.get(&id).is_none() {
+                        s.send_blocking(block.clone())
+                            .map_err(|_e| ProtocolError::CannotSend)?;
+                        deduplicated.insert(id);
+                    }
+                }
+                Ok(r)
+            }
+        })
+    }
+
+    fn compute_repostore_id(&self, overlay: OverlayId, repo_id: Option<PubKey>) -> RepoStoreId {
+        match self.mode {
+            ConfigMode::Core => RepoStoreId::Overlay(overlay),
+            ConfigMode::Local => RepoStoreId::Repo(repo_id.unwrap()),
         }
     }
 
     pub fn overlay_join(
         &self,
-        overlay: Digest,
+        user: PubKey,
+        overlay_id: OverlayId,
+        repo_id: Option<PubKey>,
         secret: SymKey,
         peers: &Vec<PeerAdvert>,
     ) -> Result<(), ProtocolError> {
-        // TODO join an overlay
+        // check if this overlay already exists
+        //debug_println!("SEARCHING OVERLAY");
+        let overlay_res = Overlay::open(&overlay_id, &self.store);
+        let overlay = match overlay_res {
+            Err(StoreGetError::NotFound) => {
+                // we have to add it
+                if self.mode == ConfigMode::Local && repo_id.is_none() {
+                    return Err(ProtocolError::RepoIdRequired);
+                }
+                let over = Overlay::create(
+                    &overlay_id,
+                    &secret,
+                    if self.mode == ConfigMode::Local {
+                        repo_id
+                    } else {
+                        None
+                    },
+                    &self.store,
+                )?;
+                // we need to add an encryption key for the repostore.
+                let mut random_buf = [0u8; 32];
+                getrandom::getrandom(&mut random_buf).unwrap();
+                let key = SymKey::ChaCha20Key(random_buf);
+
+                let _ = RepoStoreInfo::create(
+                    &self.compute_repostore_id(overlay_id, repo_id),
+                    &key,
+                    &self.store,
+                )?; // TODO in case of error, delete the previously created Overlay
+                    //debug_println!("KEY ADDED");
+                over
+            }
+            Err(e) => return Err(e.into()),
+            Ok(overlay) => overlay,
+        };
+        //debug_println!("OVERLAY FOUND");
+        // add the peers to the overlay
+        for advert in peers {
+            Peer::update_or_create(advert, &self.store)?;
+            overlay.add_peer(&advert.peer())?;
+        }
+        //debug_println!("PEERS ADDED");
+
+        // now adding the overlay_id to the account
+        let account = Account::open(&user, &self.store)?; // TODO in case of error, delete the previously created Overlay
+        account.add_overlay(&overlay_id)?;
+        //debug_println!("USER <-> OVERLAY");
+
+        //TODO: connect to peers
+
         Ok(())
     }
 }

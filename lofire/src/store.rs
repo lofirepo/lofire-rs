@@ -4,7 +4,7 @@ use crate::types::*;
 
 use std::{cmp::min, collections::HashMap, mem::size_of_val};
 
-pub trait Store {
+pub trait RepoStore {
     /// Load a block from the store.
     fn get(&self, id: &BlockId) -> Result<Block, StoreGetError>;
 
@@ -16,36 +16,9 @@ pub trait Store {
 
     /// Copy an object with a different expiry time, or no expiry time.
     fn copy(&mut self, id: ObjectId, expiry: Option<Timestamp>) -> Result<ObjectId, StoreGetError>;
-
-    /// Load an account from the store.
-    fn get_account(&self, id: &PubKey) -> Result<Vec<u8>, StoreGetError>;
-
-    /// Save an account to the store.
-    fn put_account(&mut self, id: PubKey, account: Vec<u8>) -> Result<(), StorePutError>;
-
-    /// Delete an account from the store.
-    fn del_account(&mut self, id: &PubKey) -> Result<Vec<u8>, StoreDelError>;
-
-    /// Load an account from the store.
-    fn get_overlay(&self, id: &Digest) -> Result<Vec<u8>, StoreGetError>;
-
-    /// Save an account to the store.
-    fn put_overlay(&mut self, id: Digest, account: Vec<u8>) -> Result<(), StorePutError>;
-
-    /// Delete an account from the store.
-    fn del_overlay(&mut self, id: &Digest) -> Result<Vec<u8>, StoreDelError>;
-
-    /// Load an account from the store.
-    fn get_topic(&self, id: &PubKey) -> Result<Vec<u8>, StoreGetError>;
-
-    /// Save an account to the store.
-    fn put_topic(&mut self, id: PubKey, account: Vec<u8>) -> Result<(), StorePutError>;
-
-    /// Delete an account from the store.
-    fn del_topic(&mut self, id: &PubKey) -> Result<Vec<u8>, StoreDelError>;
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub enum StoreGetError {
     NotFound,
     InvalidValue,
@@ -53,17 +26,37 @@ pub enum StoreGetError {
     SerializationError,
 }
 
-#[derive(Debug)]
+impl From<serde_bare::error::Error> for StoreGetError {
+    fn from(e: serde_bare::error::Error) -> Self {
+        StoreGetError::SerializationError
+    }
+}
+
+#[derive(Debug, PartialEq)]
 pub enum StorePutError {
     BackendError,
     SerializationError,
+    InvalidValue,
 }
 
-#[derive(Debug)]
+impl From<serde_bare::error::Error> for StorePutError {
+    fn from(e: serde_bare::error::Error) -> Self {
+        StorePutError::SerializationError
+    }
+}
+
+#[derive(Debug, PartialEq)]
 pub enum StoreDelError {
     NotFound,
     InvalidValue,
     BackendError,
+    SerializationError,
+}
+
+impl From<serde_bare::error::Error> for StoreDelError {
+    fn from(e: serde_bare::error::Error) -> Self {
+        StoreDelError::SerializationError
+    }
 }
 
 const MIN_SIZE: usize = 4072;
@@ -86,25 +79,19 @@ pub const fn store_max_value_size() -> usize {
 }
 
 /// Store with a HashMap backend
-pub struct HashMapStore {
+pub struct HashMapRepoStore {
     blocks: HashMap<BlockId, Block>,
-    accounts: HashMap<PubKey, Vec<u8>>,
-    overlays: HashMap<Digest, Vec<u8>>,
-    topics: HashMap<PubKey, Vec<u8>>,
 }
 
-impl HashMapStore {
-    pub fn new() -> HashMapStore {
-        HashMapStore {
+impl HashMapRepoStore {
+    pub fn new() -> HashMapRepoStore {
+        HashMapRepoStore {
             blocks: HashMap::new(),
-            accounts: HashMap::new(),
-            overlays: HashMap::new(),
-            topics: HashMap::new(),
         }
     }
 }
 
-impl Store for HashMapStore {
+impl RepoStore for HashMapRepoStore {
     fn get(&self, id: &BlockId) -> Result<Block, StoreGetError> {
         match self.blocks.get(id) {
             Some(block) => Ok(block.clone()),
@@ -128,54 +115,54 @@ impl Store for HashMapStore {
         todo!();
     }
 
-    fn get_account(&self, id: &PubKey) -> Result<Vec<u8>, StoreGetError> {
-        match self.accounts.get(id) {
-            Some(value) => Ok(value.clone()),
-            None => Err(StoreGetError::NotFound),
-        }
-    }
+    // fn get_account(&self, id: &PubKey) -> Result<Vec<u8>, StoreGetError> {
+    //     match self.accounts.get(id) {
+    //         Some(value) => Ok(value.clone()),
+    //         None => Err(StoreGetError::NotFound),
+    //     }
+    // }
 
-    fn put_account(&mut self, id: PubKey, account: Vec<u8>) -> Result<(), StorePutError> {
-        self.accounts.insert(id, account);
-        Ok(())
-    }
+    // fn put_account(&mut self, id: PubKey, account: Vec<u8>) -> Result<(), StorePutError> {
+    //     self.accounts.insert(id, account);
+    //     Ok(())
+    // }
 
-    fn del_account(&mut self, id: &PubKey) -> Result<Vec<u8>, StoreDelError> {
-        let value = self.accounts.remove(id).ok_or(StoreDelError::NotFound)?;
-        Ok(value)
-    }
+    // fn del_account(&mut self, id: &PubKey) -> Result<Vec<u8>, StoreDelError> {
+    //     let value = self.accounts.remove(id).ok_or(StoreDelError::NotFound)?;
+    //     Ok(value)
+    // }
 
-    fn get_overlay(&self, id: &Digest) -> Result<Vec<u8>, StoreGetError> {
-        match self.overlays.get(id) {
-            Some(value) => Ok(value.clone()),
-            None => Err(StoreGetError::NotFound),
-        }
-    }
+    // fn get_overlay(&self, id: &Digest) -> Result<Vec<u8>, StoreGetError> {
+    //     match self.overlays.get(id) {
+    //         Some(value) => Ok(value.clone()),
+    //         None => Err(StoreGetError::NotFound),
+    //     }
+    // }
 
-    fn put_overlay(&mut self, id: Digest, overlay: Vec<u8>) -> Result<(), StorePutError> {
-        self.overlays.insert(id, overlay);
-        Ok(())
-    }
+    // fn put_overlay(&mut self, id: Digest, overlay: Vec<u8>) -> Result<(), StorePutError> {
+    //     self.overlays.insert(id, overlay);
+    //     Ok(())
+    // }
 
-    fn del_overlay(&mut self, id: &Digest) -> Result<Vec<u8>, StoreDelError> {
-        let value = self.overlays.remove(id).ok_or(StoreDelError::NotFound)?;
-        Ok(value)
-    }
+    // fn del_overlay(&mut self, id: &Digest) -> Result<Vec<u8>, StoreDelError> {
+    //     let value = self.overlays.remove(id).ok_or(StoreDelError::NotFound)?;
+    //     Ok(value)
+    // }
 
-    fn get_topic(&self, id: &PubKey) -> Result<Vec<u8>, StoreGetError> {
-        match self.topics.get(id) {
-            Some(value) => Ok(value.clone()),
-            None => Err(StoreGetError::NotFound),
-        }
-    }
+    // fn get_topic(&self, id: &PubKey) -> Result<Vec<u8>, StoreGetError> {
+    //     match self.topics.get(id) {
+    //         Some(value) => Ok(value.clone()),
+    //         None => Err(StoreGetError::NotFound),
+    //     }
+    // }
 
-    fn put_topic(&mut self, id: PubKey, topic: Vec<u8>) -> Result<(), StorePutError> {
-        self.topics.insert(id, topic);
-        Ok(())
-    }
+    // fn put_topic(&mut self, id: PubKey, topic: Vec<u8>) -> Result<(), StorePutError> {
+    //     self.topics.insert(id, topic);
+    //     Ok(())
+    // }
 
-    fn del_topic(&mut self, id: &PubKey) -> Result<Vec<u8>, StoreDelError> {
-        let value = self.topics.remove(id).ok_or(StoreDelError::NotFound)?;
-        Ok(value)
-    }
+    // fn del_topic(&mut self, id: &PubKey) -> Result<Vec<u8>, StoreDelError> {
+    //     let value = self.topics.remove(id).ok_or(StoreDelError::NotFound)?;
+    //     Ok(value)
+    // }
 }

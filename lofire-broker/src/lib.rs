@@ -37,10 +37,16 @@ pub mod account;
 
 pub mod overlay;
 
+pub mod peer;
+
 pub mod topic;
 
 pub mod connection;
 
 pub mod server;
+
+pub mod config;
+
+pub mod repostoreinfo;
 
 pub mod auth;

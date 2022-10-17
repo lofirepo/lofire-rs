@@ -100,17 +100,17 @@ impl Branch {
         our_heads: &[ObjectRef],
         their_heads: &[ObjectId],
         their_filter: BloomFilter,
-        store: &impl Store,
+        store: &impl RepoStore,
     ) -> Result<Vec<ObjectId>, CommitLoadError> {
         debug_println!(">> branch_sync");
         debug_println!("   our_heads: {:?}", our_heads);
         debug_println!("   their_heads: {:?}", their_heads);
 
-        /// Load `Commit`s of a `Branch` from the `Store` starting from the given `Commit`,
+        /// Load `Commit`s of a `Branch` from the `RepoStore` starting from the given `Commit`,
         /// and collect `ObjectId`s starting from `our_heads` towards `their_heads`
         fn load_branch(
             commit: &Commit,
-            store: &impl Store,
+            store: &impl RepoStore,
             their_heads: &[ObjectId],
             their_heads_refs: &mut HashSet<ObjectRef>,
             visited: &mut HashSet<ObjectId>,
@@ -249,7 +249,7 @@ mod test {
             expiry: Option<Timestamp>,
             repo_pubkey: PubKey,
             repo_secret: SymKey,
-            store: &mut impl Store,
+            store: &mut impl RepoStore,
         ) -> ObjectRef {
             let max_object_size = 4000;
             let tree = Object::new(
@@ -275,7 +275,7 @@ mod test {
             body_ref: ObjectRef,
             repo_pubkey: PubKey,
             repo_secret: SymKey,
-            store: &mut impl Store,
+            store: &mut impl RepoStore,
         ) -> ObjectRef {
             let obj_deps = deps.iter().map(|r| r.id).collect();
 
@@ -316,7 +316,7 @@ mod test {
             repo_pubkey: PubKey,
             repo_secret: SymKey,
             rng: &mut OsRng,
-            store: &mut impl Store,
+            store: &mut impl RepoStore,
         ) -> ObjectRef {
             let deps = vec![];
             let expiry = None;
@@ -336,7 +336,7 @@ mod test {
             deps: Vec<ObjectId>,
             repo_pubkey: PubKey,
             repo_secret: SymKey,
-            store: &mut impl Store,
+            store: &mut impl RepoStore,
         ) -> ObjectRef {
             let expiry = None;
             let content = [7u8; 777].to_vec();
@@ -356,7 +356,7 @@ mod test {
             deps: Vec<ObjectId>,
             repo_pubkey: PubKey,
             repo_secret: SymKey,
-            store: &mut impl Store,
+            store: &mut impl RepoStore,
         ) -> ObjectRef {
             let expiry = None;
             let body = CommitBody::Ack(Ack::V0());
@@ -371,7 +371,7 @@ mod test {
             )
         }
 
-        let mut store = HashMapStore::new();
+        let mut store = HashMapRepoStore::new();
         let mut rng = OsRng {};
 
         // repo

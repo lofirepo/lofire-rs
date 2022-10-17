@@ -469,7 +469,7 @@ pub struct PeerAdvertContentV0 {
     pub address: Vec<NetAddr>,
 
     /// Version number
-    pub version: u16,
+    pub version: u32,
 
     /// App-specific metadata (profile, cryptographic material, etc)
     #[serde(with = "serde_bytes")]
@@ -495,6 +495,19 @@ pub struct PeerAdvertV0 {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub enum PeerAdvert {
     V0(PeerAdvertV0),
+}
+
+impl PeerAdvert {
+    pub fn version(&self) -> u32 {
+        match self {
+            PeerAdvert::V0(o) => o.content.version,
+        }
+    }
+    pub fn peer(&self) -> &PeerId {
+        match self {
+            PeerAdvert::V0(o) => &o.content.peer,
+        }
+    }
 }
 
 /// Content of OverlayMessagePaddedV0
@@ -797,7 +810,7 @@ pub struct OverlayJoinV0 {
 
     /// Secret for the repository.
     /// Only set for local brokers.
-    pub repo_secret: Option<SymKey>,
+    // pub repo_secret: Option<SymKey>,
 
     /// Peers to connect to
     pub peers: Vec<PeerAdvert>,
@@ -810,6 +823,11 @@ pub enum OverlayJoin {
 }
 
 impl OverlayJoin {
+    pub fn repo_pubkey(&self) -> Option<PubKey> {
+        match self {
+            OverlayJoin::V0(o) => o.repo_pubkey,
+        }
+    }
     pub fn secret(&self) -> SymKey {
         match self {
             OverlayJoin::V0(o) => o.secret,
@@ -981,7 +999,7 @@ pub struct TopicSubV0 {
     /// Topic to subscribe
     pub topic: PubKey,
 
-    /// Publisher need to prived a signed `TopicAdvert` for the PeerId of the broker
+    /// Publisher need to provide a signed `TopicAdvert` for the PeerId of the broker
     pub advert: Option<TopicAdvert>,
 }
 
@@ -1270,13 +1288,21 @@ pub struct BrokerMessageV0 {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub enum BrokerMessage {
     V0(BrokerMessageV0),
+    Close,
 }
 
 impl BrokerMessage {
+    pub fn is_close(&self) -> bool {
+        match self {
+            BrokerMessage::V0(o) => false,
+            BrokerMessage::Close => true,
+        }
+    }
     /// Get the content
     pub fn content(&self) -> BrokerMessageContentV0 {
         match self {
             BrokerMessage::V0(o) => o.content.clone(),
+            BrokerMessage::Close => panic!("Close not implemented"),
         }
     }
     pub fn is_request(&self) -> bool {
@@ -1286,6 +1312,7 @@ impl BrokerMessage {
                 BrokerMessageContentV0::BrokerResponse(_) => false,
                 BrokerMessageContentV0::BrokerRequest(_) => true,
             },
+            BrokerMessage::Close => panic!("Close not implemented"),
         }
     }
     pub fn is_response(&self) -> bool {
@@ -1295,6 +1322,7 @@ impl BrokerMessage {
                 BrokerMessageContentV0::BrokerResponse(_) => true,
                 BrokerMessageContentV0::BrokerRequest(_) => false,
             },
+            BrokerMessage::Close => panic!("Close not implemented"),
         }
     }
     pub fn id(&self) -> u64 {
@@ -1304,6 +1332,7 @@ impl BrokerMessage {
                 BrokerMessageContentV0::BrokerResponse(r) => r.id(),
                 BrokerMessageContentV0::BrokerRequest(r) => r.id(),
             },
+            BrokerMessage::Close => panic!("Close not implemented"),
         }
     }
     pub fn result(&self) -> u16 {
@@ -1315,6 +1344,7 @@ impl BrokerMessage {
                     panic!("it is not a response");
                 }
             },
+            BrokerMessage::Close => panic!("Close not implemented"),
         }
     }
     pub fn is_overlay(&self) -> bool {
@@ -1324,6 +1354,7 @@ impl BrokerMessage {
                 BrokerMessageContentV0::BrokerResponse(r) => false,
                 BrokerMessageContentV0::BrokerRequest(r) => false,
             },
+            BrokerMessage::Close => panic!("Close not implemented"),
         }
     }
     pub fn response_block(&self) -> Option<&Block> {
@@ -1337,6 +1368,7 @@ impl BrokerMessage {
                     panic!("it is not a response");
                 }
             },
+            BrokerMessage::Close => panic!("Close not implemented"),
         }
     }
 
@@ -1351,6 +1383,7 @@ impl BrokerMessage {
                     panic!("it is not a response");
                 }
             },
+            BrokerMessage::Close => panic!("Close not implemented"),
         }
     }
 }

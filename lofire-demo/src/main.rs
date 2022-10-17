@@ -4,7 +4,9 @@ use async_tungstenite::tungstenite::{Error, Message};
 use debug_print::*;
 use futures::{future, pin_mut, stream, SinkExt, StreamExt};
 use lofire::store::{store_max_value_size, store_valid_value_size};
-use lofire_store_lmdb::store::LmdbStore;
+use lofire_broker::config::ConfigMode;
+use lofire_store_lmdb::brokerstore::LmdbBrokerStore;
+use lofire_store_lmdb::repostore::LmdbRepoStore;
 use std::thread;
 
 use lofire::types::*;
@@ -15,18 +17,23 @@ use lofire_net::errors::*;
 use lofire_net::types::*;
 
 fn block_size() -> usize {
-    store_max_value_size()
-    //store_valid_value_size(0)
+    //store_max_value_size()
+    store_valid_value_size(0)
 }
 
-async fn test(cnx: &mut impl BrokerConnection, priv_key: PrivKey) {
-    cnx.add_user(PubKey::Ed25519PubKey([1; 32]), priv_key)
-        .await
-        .expect("add_user 1 failed");
+async fn test(cnx: &mut impl BrokerConnection, pub_key: PubKey, priv_key: PrivKey) {
+    let _ = cnx.add_user(PubKey::Ed25519PubKey([1; 32]), priv_key).await;
 
-    cnx.add_user(PubKey::Ed25519PubKey([2; 32]), priv_key)
-        .await
-        .expect("add_user 2 failed");
+    let _ = cnx.add_user(pub_key, priv_key).await;
+    //.expect("add_user 2 (myself) failed");
+
+    assert_eq!(
+        cnx.add_user(PubKey::Ed25519PubKey([1; 32]), priv_key)
+            .await
+            .err()
+            .unwrap(),
+        ProtocolError::UserAlreadyExists
+    );
 
     let repo = RepoLink::V0(RepoLinkV0 {
         id: PubKey::Ed25519PubKey([1; 32]),
@@ -121,18 +128,18 @@ async fn test_local_connection() {
         .prefix("node-daemon")
         .tempdir()
         .unwrap();
-    let key: [u8; 32] = [0; 32];
+    let master_key: [u8; 32] = [0; 32];
     std::fs::create_dir_all(root.path()).unwrap();
     println!("{}", root.path().to_str().unwrap());
-    let store = LmdbStore::open(root.path(), key);
+    let store = LmdbBrokerStore::open(root.path(), master_key);
 
-    let mut server = BrokerServer::new(store);
+    let mut server = BrokerServer::new(store, ConfigMode::Local).expect("starting broker");
 
     let (priv_key, pub_key) = generate_keypair();
 
     let mut cnx = server.local_connection(pub_key);
 
-    test(&mut cnx, priv_key).await;
+    test(&mut cnx, pub_key, priv_key).await;
 }
 
 #[xactor::main]
@@ -143,45 +150,62 @@ async fn main() -> std::io::Result<()> {
 
     debug_println!("===== TESTING REMOTE API =====");
 
-    let (ws, _) = connect_async("ws://127.0.0.1:3012")
-        .await
-        .expect("Failed to connect");
+    let res = connect_async("ws://127.0.0.1:3012").await;
 
-    debug_println!("WebSocket handshake has been successfully completed");
+    match (res) {
+        Ok((ws, _)) => {
+            debug_println!("WebSocket handshake completed");
 
-    let (write, read) = ws.split();
-    let mut frames_stream_read = read.map(|message| message.unwrap().into_data());
-    async fn transform(message: Vec<u8>) -> Result<Message, Error> {
-        Ok(Message::binary(message))
-    }
-    let frames_stream_write = write
-        .with(|message| transform(message))
-        .sink_map_err(|e| ProtocolError::WriteError);
+            let (write, read) = ws.split();
+            let mut frames_stream_read = read.map(|msg_res| match msg_res {
+                Err(e) => {
+                    debug_println!("ERROR {:?}", e);
+                    vec![]
+                }
+                Ok(message) => {
+                    if message.is_close() {
+                        vec![]
+                    } else {
+                        message.into_data()
+                    }
+                }
+            });
+            async fn transform(message: Vec<u8>) -> Result<Message, Error> {
+                if message.len() == 0 {
+                    Ok(Message::Close(None))
+                } else {
+                    Ok(Message::binary(message))
+                }
+            }
+            let frames_stream_write = write
+                .with(|message| transform(message))
+                .sink_map_err(|e| ProtocolError::WriteError);
 
-    let (priv_key, pub_key) = generate_keypair();
+            let (priv_key, pub_key) = generate_keypair();
+            let master_key: [u8; 32] = [0; 32];
+            let mut cnx_res = ConnectionRemote::open_broker_connection(
+                frames_stream_write,
+                frames_stream_read,
+                pub_key,
+                priv_key,
+                PubKey::Ed25519PubKey([1; 32]),
+            )
+            .await;
 
-    let mut cnx_res = ConnectionRemote::open_broker_connection(
-        frames_stream_write,
-        frames_stream_read,
-        pub_key,
-        priv_key,
-        PubKey::Ed25519PubKey([1; 32]),
-    )
-    .await;
-
-    match cnx_res {
-        Ok(mut cnx) => {
-            test(&mut cnx, priv_key).await;
+            match cnx_res {
+                Ok(mut cnx) => {
+                    test(&mut cnx, pub_key, priv_key).await;
+                    cnx.close().await;
+                }
+                Err(e) => {
+                    debug_println!("cannot connect {:?}", e);
+                }
+            }
         }
         Err(e) => {
-            debug_println!("cannot connect {:?}", e);
+            debug_println!("Cannot connect: {:?}", e);
         }
     }
-
-    //pin_mut!(run);
-    //run.await;
-    //task::block_on(ws_to_stdout);
-    //future::select(run, add).await;
 
     Ok(())
 }
