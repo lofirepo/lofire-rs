@@ -565,12 +565,7 @@ async fn test_local_connection() {
     test(&mut cnx, pub_key, priv_key).await;
 }
 
-#[xactor::main]
-async fn main() -> std::io::Result<()> {
-    debug_println!("Starting LoFiRe app demo...");
-
-    test_local_connection().await;
-
+async fn test_remote_connection() {
     debug_println!("===== TESTING REMOTE API =====");
 
     let res = connect_async("ws://127.0.0.1:3012").await;
@@ -629,6 +624,49 @@ async fn main() -> std::io::Result<()> {
             debug_println!("Cannot connect: {:?}", e);
         }
     }
+}
+
+#[xactor::main]
+async fn main() -> std::io::Result<()> {
+    debug_println!("Starting LoFiRe app demo...");
+
+    test_local_connection().await;
+
+    test_remote_connection().await;
 
     Ok(())
+}
+
+#[cfg(test)]
+mod test {
+
+    use assert_cmd::prelude::*;
+    use futures::task::SpawnExt;
+    use lofire::store::*;
+    use lofire::types::*;
+    use lofire::utils::*;
+    use std::process::Command;
+    #[allow(unused_imports)]
+    use std::time::Duration;
+    #[allow(unused_imports)]
+    use std::{fs, thread};
+    use tempfile::Builder; // Run programs
+
+    use crate::{test_local_connection, test_remote_connection};
+
+    #[async_std::test]
+    pub async fn test_local_cnx() {
+        xactor::block_on(test_local_connection());
+    }
+
+    #[async_std::test]
+    pub async fn test_remote_cnx() -> Result<(), Box<dyn std::error::Error>> {
+        let mut cmd = Command::cargo_bin("lofire-node")?;
+
+        cmd.spawn();
+
+        xactor::block_on(test_remote_connection());
+
+        Ok(())
+    }
 }

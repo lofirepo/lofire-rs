@@ -100,10 +100,7 @@ async fn connection_loop(tcp: TcpStream, mut handler: ProtocolHandler) -> std::i
     Ok(())
 }
 
-#[async_std::main]
-async fn main() -> std::io::Result<()> {
-    println!("Starting LoFiRe node daemon...");
-
+async fn run_server() -> std::io::Result<()> {
     let root = tempfile::Builder::new()
         .prefix("node-daemon")
         .tempdir()
@@ -124,4 +121,11 @@ async fn main() -> std::io::Result<()> {
         let _handle = task::spawn(connection_loop(tcp.unwrap(), proto_handler));
     }
     Ok(())
+}
+
+#[async_std::main]
+async fn main() -> std::io::Result<()> {
+    println!("Starting LoFiRe node daemon...");
+
+    run_server().await
 }
