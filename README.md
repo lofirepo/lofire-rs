@@ -24,6 +24,7 @@ The following components are implemented so far:
 - lofire-demo: an application to demonstrate the usage and functionality that connects to the node and sends messages to it
 
 For examples on using the libraries, see the test cases and the demo application.
+To run the demo, first run lofire-node, then lofire-demo (see below).
 
 ## Development
 
