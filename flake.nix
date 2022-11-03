@@ -29,6 +29,7 @@
         .buildRustPackage;
       myNativeBuildInputs = with pkgs; [
         pkgconfig
+        cargo-kcov
       ];
       myBuildInputs = with pkgs;
         [
