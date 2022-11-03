@@ -27,10 +27,14 @@
           rustc = rust;
         })
         .buildRustPackage;
-      myNativeBuildInputs = with pkgs; [
-        pkgconfig
-        cargo-kcov
-      ];
+      myNativeBuildInputs = with pkgs;
+        [
+          pkgconfig
+        ]
+        ++ lib.optionals stdenv.isLinux
+        (with pkgs; [
+          cargo-kcov
+        ]);
       myBuildInputs = with pkgs;
         [
           openssl
