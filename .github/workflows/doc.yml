@@ -36,10 +36,14 @@ jobs:
         run: nix develop
       - name: cargo doc
         run: cargo doc --no-deps
+      - name: cargo kcov
+        run: cargo kcov --all -v
       - name: public/
-        run: mkdir public; mv target/doc public; echo '<html><body><a href="doc">doc</a></body></html>' >public/index.html
-      - name: index.html
-        run: (echo '<html><head><title>LoFiRe Rust API documentation</title></head><body><h1>LoFiRe Rust API documentation</h1><ul>'; for p in lofire*; do echo "<li><a href='$p/index.html'>$p</a></li>"; done; echo '</ul></body></html>') >public/doc/index.html
+        run: mkdir public; mv target/doc target/cov public
+      - name: public/index.html
+        run: echo '<html><head><title>LoFiRe Rust Documentation</title></head><body><h1>LoFiRe Rust Documentation</h1><h2><a href="doc/index.html">API Documentation</a></h2><h2><a href="cov/index.html">Code Coverage Report</a></h2></body></html>' >public/index.html
+      - name: doc/index.html
+        run: (echo '<html><head><title>LoFiRe Rust API Documentation</title></head><body><h1>LoFiRe Rust API Documentation</h1><ul>'; for p in lofire*; do echo "<li><a href='$p/index.html'>$p</a></li>"; done; echo '</ul></body></html>') >public/doc/index.html
       - name: Setup Pages
         uses: actions/configure-pages@v2
       - name: Upload artifact
