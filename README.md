@@ -12,6 +12,19 @@
 
 [LoFiRe Rust API Documentation](https://p2pcollab.github.io/lofire-rs/doc/)
 
+## Overview
+
+The following components are implemented so far:
+
+- lofire: library that allows access to the repository, branches, commits, objects, blocks, and contains a hash map backed store implementation.
+- lofire-store-lmdb: encrypted LMDB store implementation
+- lofire-net: library that provides network message types
+- lofire-broker: library that implements the broker server and client protocol with async, this allows running them via arbitrary network transports or in-process without networking
+- lofire-node: daemon that runs a websocket server and the broker protocol over it
+- lofire-demo: an application to demonstrate the usage and functionality that connects to the node and sends messages to it
+
+For examples on using the libraries, see the test cases and the demo application.
+
 ## Development
 
 ### Cargo
