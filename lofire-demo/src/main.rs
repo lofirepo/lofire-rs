@@ -659,13 +659,141 @@ mod test {
         xactor::block_on(test_local_connection());
     }
 
+    use async_std::net::{TcpListener, TcpStream};
+    use async_std::sync::Mutex;
+    use async_std::task;
+    use async_tungstenite::accept_async;
+    use async_tungstenite::tungstenite::protocol::Message;
+    use debug_print::*;
+    use futures::{SinkExt, StreamExt};
+    use lofire_broker::config::ConfigMode;
+    use lofire_broker::server::*;
+    use lofire_store_lmdb::brokerstore::LmdbBrokerStore;
+    use std::sync::Arc;
+
+    async fn connection_loop(tcp: TcpStream, mut handler: ProtocolHandler) -> std::io::Result<()> {
+        let mut ws = accept_async(tcp).await.unwrap();
+        let (mut tx, mut rx) = ws.split();
+
+        let mut tx_mutex = Arc::new(Mutex::new(tx));
+
+        // setup the async frames task
+        let receiver = handler.async_frames_receiver();
+        let ws_in_task = Arc::clone(&tx_mutex);
+        task::spawn(async move {
+            while let Ok(frame) = receiver.recv().await {
+                if ws_in_task
+                    .lock()
+                    .await
+                    .send(Message::binary(frame))
+                    .await
+                    .is_err()
+                {
+                    //deal with sending errors (close the connection)
+                    break;
+                }
+            }
+            debug_println!("end of async frames loop");
+
+            let mut lock = ws_in_task.lock().await;
+            let _ = lock.send(Message::Close(None)).await;
+            let _ = lock.close();
+        });
+
+        while let Some(msg) = rx.next().await {
+            let msg = match msg {
+                Err(e) => {
+                    debug_println!("Error on server stream: {:?}", e);
+                    // Errors returned directly through the AsyncRead/Write API are fatal, generally an error on the underlying
+                    // transport.
+                    // TODO close connection
+                    break;
+                }
+                Ok(m) => m,
+            };
+            //TODO implement PING and CLOSE messages
+            if msg.is_close() {
+                debug_println!("CLOSE from client");
+                break;
+            } else if msg.is_binary() {
+                //debug_println!("server received binary: {:?}", msg);
+
+                let replies = handler.handle_incoming(msg.into_data()).await;
+
+                match replies.0 {
+                    Err(e) => {
+                        debug_println!("Protocol Error: {:?}", e);
+                        // dealing with ProtocolErrors (close the connection)
+                        break;
+                    }
+                    Ok(r) => {
+                        if tx_mutex
+                            .lock()
+                            .await
+                            .send(Message::binary(r))
+                            .await
+                            .is_err()
+                        {
+                            //deaingl with sending errors (close the connection)
+                            break;
+                        }
+                    }
+                }
+                match replies.1.await {
+                    Some(errcode) => {
+                        if errcode > 0 {
+                            debug_println!("Close due to error code : {:?}", errcode);
+                            //close connection
+                            break;
+                        }
+                    }
+                    None => {}
+                }
+            }
+        }
+        let mut lock = tx_mutex.lock().await;
+        let _ = lock.send(Message::Close(None)).await;
+        let _ = lock.close();
+        debug_println!("end of sync read+write loop");
+        Ok(())
+    }
+
+    async fn run_server_accept_one() -> std::io::Result<()> {
+        let root = tempfile::Builder::new()
+            .prefix("node-daemon")
+            .tempdir()
+            .unwrap();
+        let master_key: [u8; 32] = [0; 32];
+        std::fs::create_dir_all(root.path()).unwrap();
+        println!("{}", root.path().to_str().unwrap());
+        let store = LmdbBrokerStore::open(root.path(), master_key);
+
+        let server: BrokerServer =
+            BrokerServer::new(store, ConfigMode::Local).expect("starting broker");
+
+        let socket = TcpListener::bind("127.0.0.1:3012").await?;
+        debug_println!("Listening on 127.0.0.1:3012");
+        let mut connections = socket.incoming();
+        let server_arc = Arc::new(server);
+        let tcp = connections.next().await.unwrap()?;
+        let proto_handler = Arc::clone(&server_arc).protocol_handler();
+        let _handle = task::spawn(connection_loop(tcp, proto_handler));
+
+        Ok(())
+    }
+
     #[async_std::test]
     pub async fn test_remote_cnx() -> Result<(), Box<dyn std::error::Error>> {
-        /* TODO
-        let mut cmd = Command::cargo_bin("lofire-node")?;
-        cmd.spawn();
+        //let mut cmd = Command::cargo_bin("lofire-node")?;
+        //cmd.spawn();
+
+        let thr = task::spawn(run_server_accept_one());
+
+        std::thread::sleep(std::time::Duration::from_secs(2));
+
         xactor::block_on(test_remote_connection());
-        */
+
+        xactor::block_on(thr);
 
         Ok(())
     }
