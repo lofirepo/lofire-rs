@@ -23,8 +23,9 @@ macro_rules! after {
         //debug_println!("waiting for reply");
 
         $addr.wait_for_stop().await; // TODO add timeout and close connection if there's no reply
-        let $reply = $receiver.await.unwrap();
-
+        let r = $receiver.await;
+        if r.is_err() { return Err(ProtocolError::Closing);}
+        let $reply = r.unwrap();
         //debug_println!("reply arrived {:?}", $reply);
         {
             let mut map = $self.actors.write().expect("RwLock poisoned");

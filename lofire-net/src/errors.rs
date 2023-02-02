@@ -12,8 +12,7 @@ use std::error::Error;
 #[derive(Debug, Eq, PartialEq, TryFromPrimitive, IntoPrimitive, Clone)]
 #[repr(u16)]
 pub enum ProtocolError {
-    CannotSend = 1,
-    WriteError,
+    WriteError = 1,
     ActorError,
     InvalidState,
     SignatureError,

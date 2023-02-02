@@ -12,6 +12,8 @@ use lofire_store_lmdb::repostore::LmdbRepoStore;
 use std::fs;
 use std::sync::Arc;
 use tempfile::Builder;
+use std::{thread, time};
+
 
 async fn connection_loop(tcp: TcpStream, mut handler: ProtocolHandler) -> std::io::Result<()> {
     let mut ws = accept_async(tcp).await.unwrap();
@@ -24,38 +26,37 @@ async fn connection_loop(tcp: TcpStream, mut handler: ProtocolHandler) -> std::i
     let ws_in_task = Arc::clone(&tx_mutex);
     task::spawn(async move {
         while let Ok(frame) = receiver.recv().await {
-            if ws_in_task
-                .lock()
-                .await
-                .send(Message::binary(frame))
+            let mut sink = ws_in_task
+            .lock()
+            .await;
+            if sink.send(Message::binary(frame))
                 .await
                 .is_err()
             {
-                //deal with sending errors (close the connection)
                 break;
             }
         }
         debug_println!("end of async frames loop");
 
-        let mut lock = ws_in_task.lock().await;
-        let _ = lock.send(Message::Close(None)).await;
-        let _ = lock.close();
+        let mut sink = ws_in_task.lock().await;
+        let _ = sink.send(Message::Close(None)).await;
+        let _ = sink.close().await;
     });
 
     while let Some(msg) = rx.next().await {
+        //debug_println!("RCV: {:?}", msg);
         let msg = match msg {
             Err(e) => {
                 debug_println!("Error on server stream: {:?}", e);
                 // Errors returned directly through the AsyncRead/Write API are fatal, generally an error on the underlying
-                // transport.
-                // TODO close connection
+                // transport. closing connection
                 break;
             }
             Ok(m) => m,
         };
-        //TODO implement PING and CLOSE messages
+        //TODO implement PING messages
         if msg.is_close() {
-            debug_println!("CLOSE from client");
+            debug_println!("CLOSE from CLIENT");
             break;
         } else if msg.is_binary() {
             //debug_println!("server received binary: {:?}", msg);
@@ -65,7 +66,7 @@ async fn connection_loop(tcp: TcpStream, mut handler: ProtocolHandler) -> std::i
             match replies.0 {
                 Err(e) => {
                     debug_println!("Protocol Error: {:?}", e);
-                    // dealing with ProtocolErrors (close the connection)
+                    // dealing with ProtocolErrors (closing the connection)
                     break;
                 }
                 Ok(r) => {
@@ -76,7 +77,7 @@ async fn connection_loop(tcp: TcpStream, mut handler: ProtocolHandler) -> std::i
                         .await
                         .is_err()
                     {
-                        //deaingl with sending errors (close the connection)
+                        //dealing with sending errors (closing the connection)
                         break;
                     }
                 }
@@ -85,7 +86,7 @@ async fn connection_loop(tcp: TcpStream, mut handler: ProtocolHandler) -> std::i
                 Some(errcode) => {
                     if errcode > 0 {
                         debug_println!("Close due to error code : {:?}", errcode);
-                        //close connection
+                        //closing connection
                         break;
                     }
                 }
@@ -93,9 +94,9 @@ async fn connection_loop(tcp: TcpStream, mut handler: ProtocolHandler) -> std::i
             }
         }
     }
-    let mut lock = tx_mutex.lock().await;
-    let _ = lock.send(Message::Close(None)).await;
-    let _ = lock.close();
+    let mut sink = tx_mutex.lock().await;
+    let _ = sink.send(Message::Close(None)).await;
+    let _ = sink.close().await;
     debug_println!("end of sync read+write loop");
     Ok(())
 }

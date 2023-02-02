@@ -6,7 +6,9 @@ use futures::{
     stream::Stream,
     task::{Context, Poll},
     Future,
+    select, FutureExt,
 };
+use futures::channel::mpsc;
 use std::pin::Pin;
 use std::{collections::HashSet, fmt::Debug};
 
@@ -41,7 +43,7 @@ impl BrokerMessageActor {
         BrokerMessageActor { r: Some(r), s }
     }
     fn resolve(&mut self, msg: BrokerMessage) {
-        self.s.send(msg).unwrap()
+        let _ = self.s.send(msg);
     }
 
     fn receiver(&mut self) -> async_oneshot::Receiver<BrokerMessage> {
@@ -74,7 +76,7 @@ impl BrokerMessageStreamActor {
         self.s
             .send(block)
             .await
-            .map_err(|e| ProtocolError::CannotSend)
+            .map_err(|e| ProtocolError::WriteError)
     }
 
     fn receiver(&mut self) -> async_channel::Receiver<Block> {
@@ -499,7 +501,7 @@ impl<'a> BrokerConnection for BrokerConnectionLocal<'a> {
         request: BrokerOverlayRequestContentV0,
     ) -> Result<Pin<Box<Self::BlockStream>>, ProtocolError> {
         match request {
-            // TODO BranchSyncReq
+           
             BrokerOverlayRequestContentV0::BlockGet(b) => self
                 .broker
                 .get_block(self.user, overlay, b.id(), b.include_children(), b.topic())
@@ -564,14 +566,13 @@ impl ConnectionRemote {
     {
         let mut writer = Box::pin(w);
         let _ = writer.send(vec![]);
-        let _ = writer.close();
+        let _ = writer.close().await;
         err
     }
 
-    // FIXME return ProtocolError instead of panic via unwrap()
     pub async fn open_broker_connection<
         B: Stream<Item = Vec<u8>> + StreamExt + Send + Sync + 'static,
-        A: Sink<Vec<u8>, Error = ProtocolError> + Send,
+        A: Sink<Vec<u8>, Error = ProtocolError> + Send + 'static,
     >(
         w: A,
         r: B,
@@ -581,9 +582,9 @@ impl ConnectionRemote {
     ) -> Result<impl BrokerConnection, ProtocolError> {
         let mut writer = Box::pin(w);
         writer
-            .send(serde_bare::to_vec(&StartProtocol::Auth(ClientHello::V0())).unwrap())
+            .send(serde_bare::to_vec(&StartProtocol::Auth(ClientHello::V0()))?)
             .await
-            .map_err(|_e| ProtocolError::CannotSend)?;
+            .map_err(|_e| ProtocolError::WriteError)?;
 
         let mut reader = Box::pin(r);
         let answer = reader.next().await;
@@ -591,7 +592,7 @@ impl ConnectionRemote {
             return Err(Self::close(writer, ProtocolError::InvalidState).await);
         }
 
-        let server_hello = serde_bare::from_slice::<ServerHello>(&answer.unwrap()).unwrap();
+        let server_hello = serde_bare::from_slice::<ServerHello>(&answer.unwrap())?;
 
         //debug_println!("received nonce from server: {:?}", server_hello.nonce());
 
@@ -601,15 +602,15 @@ impl ConnectionRemote {
             nonce: server_hello.nonce().clone(),
         };
 
-        let sig = sign(user_pk, user, &serde_bare::to_vec(&content).unwrap())
+        let sig = sign(user_pk, user, &serde_bare::to_vec(&content)?)
             .map_err(|_e| ProtocolError::SignatureError)?;
 
-        let auth_ser = serde_bare::to_vec(&ClientAuth::V0(ClientAuthV0 { content, sig })).unwrap();
+        let auth_ser = serde_bare::to_vec(&ClientAuth::V0(ClientAuthV0 { content, sig }))?;
         //debug_println!("AUTH SENT {:?}", auth_ser);
         writer
             .send(auth_ser)
             .await
-            .map_err(|_e| ProtocolError::CannotSend)?;
+            .map_err(|_e| ProtocolError::WriteError)?;
 
         let answer = reader.next().await;
         if answer.is_none() {
@@ -617,7 +618,7 @@ impl ConnectionRemote {
             return Err(Self::close(writer, ProtocolError::InvalidState).await);
         }
 
-        let auth_result = serde_bare::from_slice::<AuthResult>(&answer.unwrap()).unwrap();
+        let auth_result = serde_bare::from_slice::<AuthResult>(&answer.unwrap())?;
 
         match auth_result.result() {
             0 => {
@@ -625,7 +626,7 @@ impl ConnectionRemote {
                     if message.is_close() {
                         Ok(vec![])
                     } else {
-                        Ok(serde_bare::to_vec(&message).unwrap())
+                        Ok(serde_bare::to_vec(&message)?)
                     }
                 }
                 let messages_stream_write = writer.with(|message| transform(message));
@@ -634,7 +635,10 @@ impl ConnectionRemote {
                     if message.len() == 0 {
                         BrokerMessage::Close
                     } else {
-                        serde_bare::from_slice::<BrokerMessage>(&message).unwrap()
+                        match serde_bare::from_slice::<BrokerMessage>(&message) {
+                            Err(e) => BrokerMessage::Close,
+                            Ok(m) => m
+                        }
                     }
                 });
 
@@ -647,15 +651,17 @@ impl ConnectionRemote {
         }
     }
 }
+use async_std::sync::Mutex;
 
 pub struct BrokerConnectionRemote<T>
 where
-    T: Sink<BrokerMessage> + Send,
+    T: Sink<BrokerMessage> + Send + 'static,
 {
-    writer: Pin<Box<T>>,
+    writer: Arc<Mutex<Pin<Box<T>>>>,
     user: PubKey,
     actors: Arc<RwLock<HashMap<u64, WeakAddr<BrokerMessageActor>>>>,
     stream_actors: Arc<RwLock<HashMap<u64, WeakAddr<BrokerMessageStreamActor>>>>,
+    shutdown: mpsc::UnboundedSender<Void>,
 }
 
 #[async_trait::async_trait]
@@ -667,8 +673,10 @@ where
     type BlockStream = async_channel::Receiver<Block>;
 
     async fn close(&mut self) {
-        let _ = self.writer.send(BrokerMessage::Close).await;
-        let _ = self.writer.close();
+        let _ = self.shutdown.close().await;
+        let mut w = self.writer.lock().await;
+        let _ = w.send(BrokerMessage::Close).await;
+        let _ = w.close().await;
     }
 
     async fn process_overlay_request_stream_response(
@@ -692,8 +700,8 @@ where
             map.insert(request_id, addr.downgrade());
         }
 
-        self.writer
-            .send(BrokerMessage::V0(BrokerMessageV0 {
+        let mut w = self.writer.lock().await;
+        w.send(BrokerMessage::V0(BrokerMessageV0 {
                 padding: vec![], //FIXME implement padding
                 content: BrokerMessageContentV0::BrokerOverlayMessage(BrokerOverlayMessage::V0(
                     BrokerOverlayMessageV0 {
@@ -708,17 +716,20 @@ where
                 )),
             }))
             .await
-            .map_err(|_e| ProtocolError::CannotSend)?;
+            .map_err(|_e| ProtocolError::WriteError)?;
 
         //debug_println!("waiting for first reply");
-        let reply = error_receiver.await.unwrap();
+        let reply = error_receiver.await;
         match reply {
-            Some(e) => {
+            Err(_e) => {
+                Err(ProtocolError::Closing)
+            }
+            Ok(Some(e)) => {
                 let mut map = self.stream_actors.write().expect("RwLock poisoned");
                 map.remove(&request_id);
                 return Err(e);
             }
-            None => {
+            Ok(None) => {
                 let stream_actors_in_thread = Arc::clone(&self.stream_actors);
                 task::spawn(async move {
                     addr.wait_for_stop().await; // TODO add timeout
@@ -738,7 +749,7 @@ where
     ) -> Result<ObjectId, ProtocolError> {
         before!(self, request_id, addr, receiver);
 
-        self.writer
+        self.writer.lock().await
             .send(BrokerMessage::V0(BrokerMessageV0 {
                 padding: vec![], // FIXME implement padding
                 content: BrokerMessageContentV0::BrokerOverlayMessage(BrokerOverlayMessage::V0(
@@ -754,7 +765,7 @@ where
                 )),
             }))
             .await
-            .map_err(|_e| ProtocolError::CannotSend)?;
+            .map_err(|_e| ProtocolError::WriteError)?;
 
         after!(self, request_id, addr, receiver, reply);
         reply.into()
@@ -767,7 +778,7 @@ where
     ) -> Result<(), ProtocolError> {
         before!(self, request_id, addr, receiver);
 
-        self.writer
+        self.writer.lock().await
             .send(BrokerMessage::V0(BrokerMessageV0 {
                 padding: vec![], // FIXME implement padding
                 content: BrokerMessageContentV0::BrokerOverlayMessage(BrokerOverlayMessage::V0(
@@ -783,13 +794,12 @@ where
                 )),
             }))
             .await
-            .map_err(|_e| ProtocolError::CannotSend)?;
+            .map_err(|_e| ProtocolError::WriteError)?;
 
         after!(self, request_id, addr, receiver, reply);
         reply.into()
     }
 
-    // FIXME return ProtocolError instead of panic via unwrap()
     async fn add_user(
         &mut self,
         user_id: PubKey,
@@ -802,12 +812,12 @@ where
         let sig = sign(
             admin_user_pk,
             self.user,
-            &serde_bare::to_vec(&op_content).unwrap(),
+            &serde_bare::to_vec(&op_content)?,
         )?;
 
-        self.writer
+        self.writer.lock().await
             .send(BrokerMessage::V0(BrokerMessageV0 {
-                padding: vec![], // FIXME implement padding
+                padding: vec![], // TODO implement padding
                 content: BrokerMessageContentV0::BrokerRequest(BrokerRequest::V0(
                     BrokerRequestV0 {
                         id: request_id,
@@ -819,7 +829,7 @@ where
                 )),
             }))
             .await
-            .map_err(|_e| ProtocolError::CannotSend)?;
+            .map_err(|_e| ProtocolError::WriteError)?;
 
         after!(self, request_id, addr, receiver, reply);
         reply.into()
@@ -846,6 +856,9 @@ where
     }
 }
 
+#[derive(Debug)]
+enum Void {}
+
 impl<T> BrokerConnectionRemote<T>
 where
     T: Sink<BrokerMessage> + Send,
@@ -856,63 +869,90 @@ where
         stream: U,
         actors: Arc<RwLock<HashMap<u64, WeakAddr<BrokerMessageActor>>>>,
         stream_actors: Arc<RwLock<HashMap<u64, WeakAddr<BrokerMessageStreamActor>>>>,
+        shutdown: mpsc::UnboundedReceiver<Void>,
     ) -> Result<(), ProtocolError> {
-        let mut s = stream;
-        while let Some(message) = s.next().await {
-            //debug_println!("GOT MESSAGE {:?}", message);
+        let mut s = stream.fuse();
+        let mut shutdown = shutdown.fuse();
+        loop {
+            select! {
+                void = shutdown.next().fuse() => match void {
+                    Some(void) => match void {},
+                    None => break,
+                },
+                message = s.next().fuse() => match message {
+                    Some(message) => 
+                    {
+                        //debug_println!("GOT MESSAGE {:?}", message);
 
-            if message.is_close() {
-                return Err(ProtocolError::Closing);
-            }
+                        if message.is_close() {
+                            // releasing the blocking calls on the actors
 
-            // TODO check FSM
-
-            if message.is_request() {
-                debug_println!("is request {}", message.id());
-                return Err(ProtocolError::Closing);
-                // close connection. a client is not supposed to receive requests.
-            } else if message.is_response() {
-                let id = message.id();
-                //debug_println!("is response for {}", id);
-                {
-                    let map = actors.read().expect("RwLock poisoned");
-                    match map.get(&id) {
-                        Some(weak_addr) => match weak_addr.upgrade() {
-                            Some(addr) => {
-                                addr.send(BrokerMessageXActor(message))
-                                    .map_err(|e| ProtocolError::Closing)?
-                                //.expect("sending message back to actor failed");
+                            let map = actors.read().expect("RwLock poisoned");
+                            for (a) in map.values() {
+                                if let Some(mut addr) = a.upgrade() {
+                                    let _ = addr.stop(Some(ProtocolError::Closing.into()));
+                                }
                             }
-                            None => {
-                                debug_println!("ERROR. Addr is dead for ID {}", id);
-                                return Err(ProtocolError::Closing);
-                            }
-                        },
-                        None => {
                             let map2 = stream_actors.read().expect("RwLock poisoned");
-                            match map2.get(&id) {
-                                Some(weak_addr) => match weak_addr.upgrade() {
-                                    Some(addr) => {
-                                        addr.send(BrokerMessageXActor(message))
-                                            .map_err(|e| ProtocolError::Closing)?
-                                        //.expect("sending message back to stream actor failed");
-                                    }
+                            for (a) in map2.values() {
+                                if let Some(mut addr) = a.upgrade() {
+                                    let _ = addr.stop(Some(ProtocolError::Closing.into()));
+                                }
+                            }
+                            return Err(ProtocolError::Closing);
+                        }
+
+                        if message.is_request() {
+                            debug_println!("is request {}", message.id());
+                            // closing connection. a client is not supposed to receive requests.
+                            return Err(ProtocolError::Closing);
+                            
+                        } else if message.is_response() {
+                            let id = message.id();
+                            //debug_println!("is response for {}", id);
+                            {
+                                let map = actors.read().expect("RwLock poisoned");
+                                match map.get(&id) {
+                                    Some(weak_addr) => match weak_addr.upgrade() {
+                                        Some(addr) => {
+                                            addr.send(BrokerMessageXActor(message))
+                                                .map_err(|e| ProtocolError::Closing)?
+                                            //.expect("sending message back to actor failed");
+                                        }
+                                        None => {
+                                            debug_println!("ERROR. Addr is dead for ID {}", id);
+                                            return Err(ProtocolError::Closing);
+                                        }
+                                    },
                                     None => {
-                                        debug_println!(
-                                            "ERROR. Addr is dead for ID {} {:?}",
-                                            id,
-                                            message
-                                        );
-                                        return Err(ProtocolError::Closing);
+                                        let map2 = stream_actors.read().expect("RwLock poisoned");
+                                        match map2.get(&id) {
+                                            Some(weak_addr) => match weak_addr.upgrade() {
+                                                Some(addr) => {
+                                                    addr.send(BrokerMessageXActor(message))
+                                                        .map_err(|e| ProtocolError::Closing)?
+                                                    //.expect("sending message back to stream actor failed");
+                                                }
+                                                None => {
+                                                    debug_println!(
+                                                        "ERROR. Addr is dead for ID {} {:?}",
+                                                        id,
+                                                        message
+                                                    );
+                                                    return Err(ProtocolError::Closing);
+                                                }
+                                            },
+                                            None => {
+                                                debug_println!("Actor ID not found {} {:?}", id, message);
+                                                return Err(ProtocolError::Closing);
+                                            }
+                                        }
                                     }
-                                },
-                                None => {
-                                    debug_println!("Actor ID not found {} {:?}", id, message);
-                                    return Err(ProtocolError::Closing);
                                 }
                             }
                         }
-                    }
+                    },
+                    None => break,
                 }
             }
         }
@@ -930,25 +970,31 @@ where
         let stream_actors: Arc<RwLock<HashMap<u64, WeakAddr<BrokerMessageStreamActor>>>> =
             Arc::new(RwLock::new(HashMap::new()));
 
+        let (shutdown_sender, shutdown_receiver) = mpsc::unbounded::<Void>();
+
+        let w = Arc::new(Mutex::new(Box::pin(writer)));
+        let ws_in_task = Arc::clone(&w);
+
         let actors_in_thread = Arc::clone(&actors);
         let stream_actors_in_thread = Arc::clone(&stream_actors);
         task::spawn(async move {
+            debug_println!("START of reader loop");
             if let Err(e) =
-                Self::connection_reader_loop(reader, actors_in_thread, stream_actors_in_thread)
+                Self::connection_reader_loop(reader, actors_in_thread, stream_actors_in_thread, shutdown_receiver)
                     .await
             {
-                debug_println!("closing {}", e);
-                // TODO close
-                //Box::pin(writer).close();
+                debug_println!("closing because of {}", e);
+                let _ = ws_in_task.lock().await.close().await;
             }
-            debug_println!("end of reader loop");
+            debug_println!("END of reader loop");
         });
 
         BrokerConnectionRemote::<T> {
-            writer: Box::pin(writer),
+            writer: Arc::clone(&w),
             user,
             actors: Arc::clone(&actors),
             stream_actors: Arc::clone(&stream_actors),
+            shutdown:shutdown_sender ,
         }
     }
 }

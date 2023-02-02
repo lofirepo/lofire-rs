@@ -90,7 +90,6 @@ impl ProtocolHandler {
     }
 
     /// Handle incoming message
-    // FIXME return ProtocolError instead of panic via unwrap()
     pub async fn handle_incoming(
         &mut self,
         frame: Vec<u8>,
@@ -101,9 +100,9 @@ impl ProtocolHandler {
         //debug_println!("SERVER PROTOCOL {:?}", &self.protocol);
         match &self.protocol {
             ProtocolType::Start => {
-                let message = serde_bare::from_slice::<StartProtocol>(&frame).unwrap();
+                let message = serde_bare::from_slice::<StartProtocol>(&frame);
                 match message {
-                    StartProtocol::Auth(b) => {
+                    Ok(StartProtocol::Auth(b)) => {
                         self.protocol = ProtocolType::Auth;
                         self.auth_protocol = Some(AuthProtocolHandler::new());
                         return (
@@ -111,7 +110,7 @@ impl ProtocolHandler {
                             OptionFuture::from(None),
                         );
                     }
-                    StartProtocol::Ext(ext) => {
+                    Ok(StartProtocol::Ext(ext)) => {
                         self.protocol = ProtocolType::Ext;
                         self.ext_protocol = Some(ExtProtocolHandler {});
                         let reply = self.ext_protocol.as_ref().unwrap().handle_incoming(ext);
@@ -119,6 +118,9 @@ impl ProtocolHandler {
                             Ok(serde_bare::to_vec(&reply).unwrap()),
                             OptionFuture::from(None),
                         );
+                    }
+                    Err(e) => {
+                        return (Err(ProtocolError::SerializationError),OptionFuture::from(None))
                     }
                 }
             }
@@ -140,18 +142,25 @@ impl ProtocolHandler {
                 }
             }
             ProtocolType::Broker => {
-                let message = serde_bare::from_slice::<BrokerMessage>(&frame).unwrap();
-                let reply = self
-                    .broker_protocol
-                    .as_ref()
-                    .unwrap()
-                    .handle_incoming(message)
-                    .await;
-                (Ok(serde_bare::to_vec(&reply.0).unwrap()), reply.1)
+                let message = serde_bare::from_slice::<BrokerMessage>(&frame);
+                match (message) {
+                    Ok(message) => {
+                        let reply = self
+                            .broker_protocol
+                            .as_ref()
+                            .unwrap()
+                            .handle_incoming(message)
+                            .await;
+                        (Ok(serde_bare::to_vec(&reply.0).unwrap()), reply.1)
+                    }
+                    Err(e_) => {
+                        (Err(ProtocolError::SerializationError),OptionFuture::from(None))
+                    }
+                }
             }
             ProtocolType::Ext => {
                 // Ext protocol is not accepting 2 extrequest in the same connection.
-                // TODO, close the connection
+                // closing the connection
                 (Err(ProtocolError::InvalidState), OptionFuture::from(None))
             }
             ProtocolType::P2P => {
@@ -174,6 +183,7 @@ pub struct BrokerProtocolHandler {
     user: PubKey,
     async_frames_sender: async_channel::Sender<Vec<u8>>,
 }
+use std::{thread, time};
 
 impl BrokerProtocolHandler {
     fn prepare_reply_broker_message(
@@ -312,7 +322,6 @@ impl BrokerProtocolHandler {
                 }
             }
         };
-        //std::thread::sleep(std::time::Duration::from_secs(4));
         return (
             Self::prepare_reply_broker_overlay_message_stream(
                 one_reply.0,
@@ -328,7 +337,6 @@ impl BrokerProtocolHandler {
         &self,
         msg: BrokerMessage,
     ) -> (BrokerMessage, OptionFuture<BoxFuture<'static, u16>>) {
-        // TODO check FSM
 
         let padding_size = 20; // TODO randomize, if config of server contains padding_max
 
@@ -490,7 +498,7 @@ impl BrokerServer {
         let mut path = self.store.path();
         path.push(REPO_STORES_SUBDIR);
         path.push::<String>(repostore_id.clone().into());
-        std::fs::create_dir_all(path.clone()).unwrap();
+        std::fs::create_dir_all(path.clone()).map_err(|_e| ProtocolError::WriteError )?;
         println!("path for repo store: {}", path.to_str().unwrap());
         let repo = LmdbRepoStore::open(&path, *key.slice());
         let mut writer = self.repo_stores.write().expect("write repo_store hashmap");
@@ -581,9 +589,7 @@ impl BrokerServer {
     ) -> Result<(), ProtocolError> {
         debug_println!("ADDING USER {}", user_id);
         // TODO add is_admin boolean
-        // TODO implement add_user
-
-        // check that admin_user is indeed an admin
+        // TODO check that admin_user is indeed an admin
 
         // verify signature
         let op_content = AddUserContentV0 { user: user_id };
@@ -718,7 +724,6 @@ impl BrokerServer {
         expiry: Option<Timestamp>,
     ) -> Result<ObjectId, ProtocolError> {
         // self.get_repostore_from_overlay_id(&overlay, |store| {
-        //     // TODO, only admin users can delete on a store on this broker
         //     //let obj = Object::from_store(id, None, store);
         //     //Ok(Object::copy(id, expiry, store)?)
         // });
@@ -750,7 +755,7 @@ impl BrokerServer {
             if !include_children {
                 let block = store.get(&id)?;
                 s.send_blocking(block)
-                    .map_err(|_e| ProtocolError::CannotSend)?;
+                    .map_err(|_e| ProtocolError::WriteError)?;
                 Ok(r)
             } else {
                 let obj = Object::load(id, None, store);
@@ -759,7 +764,7 @@ impl BrokerServer {
                     //&& obj.err().unwrap().len() == 1 && obj.err().unwrap()[0] == id {
                     return Err(ProtocolError::NotFound);
                 }
-                // todo, use a task to send non blocking (streaming)
+                // TODO use a task to send non blocking (streaming)
                 let o = obj.ok().unwrap();
                 //debug_println!("{} BLOCKS ", o.blocks().len());
                 let mut deduplicated: HashSet<BlockId> = HashSet::new();
@@ -767,7 +772,7 @@ impl BrokerServer {
                     let id = block.id();
                     if deduplicated.get(&id).is_none() {
                         s.send_blocking(block.clone())
-                            .map_err(|_e| ProtocolError::CannotSend)?;
+                            .map_err(|_e| ProtocolError::WriteError)?;
                         deduplicated.insert(id);
                     }
                 }
@@ -806,7 +811,7 @@ impl BrokerServer {
                     let id = block.id();
                     if deduplicated.get(&id).is_none() {
                         s.send_blocking(block.clone())
-                            .map_err(|_e| ProtocolError::CannotSend)?;
+                            .map_err(|_e| ProtocolError::WriteError)?;
                         deduplicated.insert(id);
                     }
                 }

@@ -58,7 +58,6 @@ impl AuthProtocolHandler {
         self.user
     }
 
-    // FIXME return ProtocolError instead of panic via unwrap()
     pub fn handle_init(&mut self, client_hello: ClientHello) -> Result<Vec<u8>, ProtocolError> {
         let _ = self
             .machine
@@ -83,7 +82,6 @@ impl AuthProtocolHandler {
         Ok(serde_bare::to_vec(&reply).unwrap())
     }
 
-    // FIXME return ProtocolError instead of panic via unwrap()
     pub fn handle_incoming(
         &mut self,
         frame: Vec<u8>,
@@ -99,14 +97,13 @@ impl AuthProtocolHandler {
             AuthResult::V0(AuthResultV0 { result, metadata })
         }
 
-        // FIXME return ProtocolError instead of panic via unwrap()
         fn process_state(
             handler: &mut AuthProtocolHandler,
             frame: Vec<u8>,
         ) -> Result<Vec<u8>, ProtocolError> {
             match handler.machine.state() {
                 &AuthProtocolServerState::ServerHelloSent => {
-                    let message = serde_bare::from_slice::<ClientAuth>(&frame).unwrap();
+                    let message = serde_bare::from_slice::<ClientAuth>(&frame)?;
                     let _ = handler
                         .machine
                         .consume(&AuthProtocolServerInput::ClientAuthReceived)

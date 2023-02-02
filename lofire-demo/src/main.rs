@@ -12,7 +12,6 @@ use lofire_store_lmdb::brokerstore::LmdbBrokerStore;
 use lofire_store_lmdb::repostore::LmdbRepoStore;
 use rand::rngs::OsRng;
 use std::collections::HashMap;
-use std::thread;
 
 use lofire::types::*;
 use lofire::utils::{generate_keypair, now_timestamp};
@@ -439,17 +438,15 @@ async fn test_sync(cnx: &mut impl BrokerConnection, user_pub_key: PubKey, userpr
     // now the client can verify the DAG and each commit. Then update its list of heads.
 }
 
-async fn test(cnx: &mut impl BrokerConnection, pub_key: PubKey, priv_key: PrivKey) {
-    let _ = cnx.add_user(PubKey::Ed25519PubKey([1; 32]), priv_key).await;
+async fn test(cnx: &mut impl BrokerConnection, pub_key: PubKey, priv_key: PrivKey) -> Result<(), ProtocolError>{
+    
+    cnx.add_user(PubKey::Ed25519PubKey([1; 32]), priv_key).await?;
 
-    let _ = cnx.add_user(pub_key, priv_key).await;
+    cnx.add_user(pub_key, priv_key).await?;
     //.expect("add_user 2 (myself) failed");
 
     assert_eq!(
-        cnx.add_user(PubKey::Ed25519PubKey([1; 32]), priv_key)
-            .await
-            .err()
-            .unwrap(),
+        cnx.add_user(PubKey::Ed25519PubKey([1; 32]), priv_key).await.err().unwrap(),
         ProtocolError::UserAlreadyExists
     );
 
@@ -460,8 +457,7 @@ async fn test(cnx: &mut impl BrokerConnection, pub_key: PubKey, priv_key: PrivKe
     });
     let mut public_overlay_cnx = cnx
         .overlay_connect(&repo, true)
-        .await
-        .expect("overlay_connect failed");
+        .await?;
 
     let my_block_id = public_overlay_cnx
         .put_block(&Block::new(
@@ -471,8 +467,7 @@ async fn test(cnx: &mut impl BrokerConnection, pub_key: PubKey, priv_key: PrivKe
             vec![27; 150],
             None,
         ))
-        .await
-        .expect("put_block failed");
+        .await?;
 
     debug_println!("added block_id to store {}", my_block_id);
 
@@ -489,15 +484,14 @@ async fn test(cnx: &mut impl BrokerConnection, pub_key: PubKey, priv_key: PrivKe
             repo.id(),
             repo.secret(),
         )
-        .await
-        .expect("put_object failed");
+        .await?;
 
     debug_println!("added object_id to store {}", object_id);
 
     let mut my_block_stream = public_overlay_cnx
         .get_block(my_block_id, true, None)
-        .await
-        .expect("get_block failed");
+        .await?;
+        //.expect("get_block failed");
 
     while let Some(b) = my_block_stream.next().await {
         debug_println!("GOT BLOCK {}", b.id());
@@ -505,8 +499,8 @@ async fn test(cnx: &mut impl BrokerConnection, pub_key: PubKey, priv_key: PrivKe
 
     let mut my_object_stream = public_overlay_cnx
         .get_block(object_id, true, None)
-        .await
-        .expect("get_block for object failed");
+        .await?;
+        //.expect("get_block for object failed");
 
     while let Some(b) = my_object_stream.next().await {
         debug_println!("GOT BLOCK {}", b.id());
@@ -514,8 +508,8 @@ async fn test(cnx: &mut impl BrokerConnection, pub_key: PubKey, priv_key: PrivKe
 
     let object = public_overlay_cnx
         .get_object(object_id, None)
-        .await
-        .expect("get_object failed");
+        .await?;
+        //.expect("get_object failed");
 
     debug_println!("GOT OBJECT with ID {}", object.id());
 
@@ -528,20 +522,24 @@ async fn test(cnx: &mut impl BrokerConnection, pub_key: PubKey, priv_key: PrivKe
 
     public_overlay_cnx
         .delete_object(object_id)
-        .await
-        .expect("delete_object failed");
+        .await?;
+        //.expect("delete_object failed");
 
     let res = public_overlay_cnx
         .get_object(object_id, None)
         .await
         .unwrap_err();
+    
     debug_println!("result from get object after delete: {}", res);
-
+    assert_eq!(res, ProtocolError::NotFound);
+    
     //TODO test pin/unpin
 
     // TEST BRANCH SYNC
 
     test_sync(cnx, pub_key, priv_key).await;
+
+    Ok(())
 }
 
 async fn test_local_connection() {
@@ -582,6 +580,7 @@ async fn test_remote_connection() {
                 }
                 Ok(message) => {
                     if message.is_close() {
+                        debug_println!("CLOSE FROM SERVER");
                         vec![]
                     } else {
                         message.into_data()
@@ -590,6 +589,7 @@ async fn test_remote_connection() {
             });
             async fn transform(message: Vec<u8>) -> Result<Message, Error> {
                 if message.len() == 0 {
+                    debug_println!("sending CLOSE message to SERVER");
                     Ok(Message::Close(None))
                 } else {
                     Ok(Message::binary(message))
@@ -612,9 +612,13 @@ async fn test_remote_connection() {
 
             match cnx_res {
                 Ok(mut cnx) => {
-                    test(&mut cnx, pub_key, priv_key).await;
-                    cnx.close().await;
-                }
+                    if let Err(e) = test(&mut cnx, pub_key, priv_key).await {
+                        debug_println!("error: {:?}", e)
+                    }
+                    else {
+                        cnx.close().await;
+                        
+                    }                   }
                 Err(e) => {
                     debug_println!("cannot connect {:?}", e);
                 }
@@ -671,113 +675,113 @@ mod test {
     use lofire_store_lmdb::brokerstore::LmdbBrokerStore;
     use std::sync::Arc;
 
-    async fn connection_loop(tcp: TcpStream, mut handler: ProtocolHandler) -> std::io::Result<()> {
-        let mut ws = accept_async(tcp).await.unwrap();
-        let (mut tx, mut rx) = ws.split();
+    // async fn connection_loop(tcp: TcpStream, mut handler: ProtocolHandler) -> std::io::Result<()> {
+    //     let mut ws = accept_async(tcp).await.unwrap();
+    //     let (mut tx, mut rx) = ws.split();
 
-        let mut tx_mutex = Arc::new(Mutex::new(tx));
+    //     let mut tx_mutex = Arc::new(Mutex::new(tx));
 
-        // setup the async frames task
-        let receiver = handler.async_frames_receiver();
-        let ws_in_task = Arc::clone(&tx_mutex);
-        task::spawn(async move {
-            while let Ok(frame) = receiver.recv().await {
-                if ws_in_task
-                    .lock()
-                    .await
-                    .send(Message::binary(frame))
-                    .await
-                    .is_err()
-                {
-                    //deal with sending errors (close the connection)
-                    break;
-                }
-            }
-            debug_println!("end of async frames loop");
+    //     // setup the async frames task
+    //     let receiver = handler.async_frames_receiver();
+    //     let ws_in_task = Arc::clone(&tx_mutex);
+    //     task::spawn(async move {
+    //         while let Ok(frame) = receiver.recv().await {
+    //             if ws_in_task
+    //                 .lock()
+    //                 .await
+    //                 .send(Message::binary(frame))
+    //                 .await
+    //                 .is_err()
+    //             {
+    //                 //deal with sending errors (close the connection)
+    //                 break;
+    //             }
+    //         }
+    //         debug_println!("end of async frames loop");
 
-            let mut lock = ws_in_task.lock().await;
-            let _ = lock.send(Message::Close(None)).await;
-            let _ = lock.close();
-        });
+    //         let mut lock = ws_in_task.lock().await;
+    //         let _ = lock.send(Message::Close(None)).await;
+    //         let _ = lock.close();
+    //     });
 
-        while let Some(msg) = rx.next().await {
-            let msg = match msg {
-                Err(e) => {
-                    debug_println!("Error on server stream: {:?}", e);
-                    // Errors returned directly through the AsyncRead/Write API are fatal, generally an error on the underlying
-                    // transport.
-                    // TODO close connection
-                    break;
-                }
-                Ok(m) => m,
-            };
-            //TODO implement PING and CLOSE messages
-            if msg.is_close() {
-                debug_println!("CLOSE from client");
-                break;
-            } else if msg.is_binary() {
-                //debug_println!("server received binary: {:?}", msg);
+    //     while let Some(msg) = rx.next().await {
+    //         let msg = match msg {
+    //             Err(e) => {
+    //                 debug_println!("Error on server stream: {:?}", e);
+    //                 // Errors returned directly through the AsyncRead/Write API are fatal, generally an error on the underlying
+    //                 // transport.
+    //                 // TODO close connection
+    //                 break;
+    //             }
+    //             Ok(m) => m,
+    //         };
+    //         //TODO implement PING and CLOSE messages
+    //         if msg.is_close() {
+    //             debug_println!("CLOSE from client");
+    //             break;
+    //         } else if msg.is_binary() {
+    //             //debug_println!("server received binary: {:?}", msg);
 
-                let replies = handler.handle_incoming(msg.into_data()).await;
+    //             let replies = handler.handle_incoming(msg.into_data()).await;
 
-                match replies.0 {
-                    Err(e) => {
-                        debug_println!("Protocol Error: {:?}", e);
-                        // dealing with ProtocolErrors (close the connection)
-                        break;
-                    }
-                    Ok(r) => {
-                        if tx_mutex
-                            .lock()
-                            .await
-                            .send(Message::binary(r))
-                            .await
-                            .is_err()
-                        {
-                            //deaingl with sending errors (close the connection)
-                            break;
-                        }
-                    }
-                }
-                match replies.1.await {
-                    Some(errcode) => {
-                        if errcode > 0 {
-                            debug_println!("Close due to error code : {:?}", errcode);
-                            //close connection
-                            break;
-                        }
-                    }
-                    None => {}
-                }
-            }
-        }
-        let mut lock = tx_mutex.lock().await;
-        let _ = lock.send(Message::Close(None)).await;
-        let _ = lock.close();
-        debug_println!("end of sync read+write loop");
-        Ok(())
-    }
+    //             match replies.0 {
+    //                 Err(e) => {
+    //                     debug_println!("Protocol Error: {:?}", e);
+    //                     // dealing with ProtocolErrors (close the connection)
+    //                     break;
+    //                 }
+    //                 Ok(r) => {
+    //                     if tx_mutex
+    //                         .lock()
+    //                         .await
+    //                         .send(Message::binary(r))
+    //                         .await
+    //                         .is_err()
+    //                     {
+    //                         //deaingl with sending errors (close the connection)
+    //                         break;
+    //                     }
+    //                 }
+    //             }
+    //             match replies.1.await {
+    //                 Some(errcode) => {
+    //                     if errcode > 0 {
+    //                         debug_println!("Close due to error code : {:?}", errcode);
+    //                         //close connection
+    //                         break;
+    //                     }
+    //                 }
+    //                 None => {}
+    //             }
+    //         }
+    //     }
+    //     let mut lock = tx_mutex.lock().await;
+    //     let _ = lock.send(Message::Close(None)).await;
+    //     let _ = lock.close();
+    //     debug_println!("end of sync read+write loop");
+    //     Ok(())
+    // }
 
     async fn run_server_accept_one() -> std::io::Result<()> {
-        let root = tempfile::Builder::new()
-            .prefix("node-daemon")
-            .tempdir()
-            .unwrap();
-        let master_key: [u8; 32] = [0; 32];
-        std::fs::create_dir_all(root.path()).unwrap();
-        println!("{}", root.path().to_str().unwrap());
-        let store = LmdbBrokerStore::open(root.path(), master_key);
+        // let root = tempfile::Builder::new()
+        //     .prefix("node-daemon")
+        //     .tempdir()
+        //     .unwrap();
+        // let master_key: [u8; 32] = [0; 32];
+        // std::fs::create_dir_all(root.path()).unwrap();
+        // println!("{}", root.path().to_str().unwrap());
+        // let store = LmdbBrokerStore::open(root.path(), master_key);
 
-        let server: BrokerServer =
-            BrokerServer::new(store, ConfigMode::Local).expect("starting broker");
+        // let server: BrokerServer =
+        //     BrokerServer::new(store, ConfigMode::Local).expect("starting broker");
 
-        let socket = TcpListener::bind("127.0.0.1:3012").await?;
-        debug_println!("Listening on 127.0.0.1:3012");
-        let mut connections = socket.incoming();
-        let server_arc = Arc::new(server);
-        let tcp = connections.next().await.unwrap()?;
-        let proto_handler = Arc::clone(&server_arc).protocol_handler();
-        let _handle = task::spawn(connection_loop(tcp, proto_handler));
+        // let socket = TcpListener::bind("127.0.0.1:3012").await?;
+        // debug_println!("Listening on 127.0.0.1:3012");
+        // let mut connections = socket.incoming();
+        // let server_arc = Arc::new(server);
+        // let tcp = connections.next().await.unwrap()?;
+        // let proto_handler = Arc::clone(&server_arc).protocol_handler();
+        // let _handle = task::spawn(connection_loop(tcp, proto_handler));
 
         Ok(())
     }
