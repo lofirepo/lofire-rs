@@ -650,7 +650,7 @@ impl BrokerServer {
             for block in o.blocks() {
                 let id = block.id();
                 if deduplicated.get(&id).is_none() {
-                    store._del(&id)?;
+                    store.del(&id)?;
                     deduplicated.insert(id);
                 }
             }
@@ -729,7 +729,7 @@ impl BrokerServer {
         block: &Block,
     ) -> Result<(), ProtocolError> {
         self.get_repostore_from_overlay_id(&overlay, |store| {
-            let _ = store._put(block)?;
+            let _ = store.put(block)?;
             Ok(())
         })
     }

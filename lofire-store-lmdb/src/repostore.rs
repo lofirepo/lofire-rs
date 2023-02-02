@@ -104,54 +104,10 @@ impl RepoStore for LmdbRepoStore {
         }
     }
 
-    fn put(&self, block: &Block) -> Result<BlockId, StorageError> {
-        self._put(block)
-    }
-
-    fn del(&self, block_id: &BlockId) -> Result<(Block, usize), StorageError> {
-        self._del(block_id)
-    }
-}
-
-impl LmdbRepoStore {
-    /// Opens the store and returns a RepoStore object that should be kept and used to call put/get/delete/pin
-    /// The key is the encryption key for the data at rest.
-    pub fn open<'a>(path: &Path, key: [u8; 32]) -> LmdbRepoStore {
-        let mut manager = Manager::<LmdbEnvironment>::singleton().write().unwrap();
-        let shared_rkv = manager
-            .get_or_create(path, |path| {
-                //Rkv::new::<Lmdb>(path) // use this instead to disable encryption
-                Rkv::with_encryption_key_and_mapsize::<Lmdb>(path, key, 2 * 1024 * 1024 * 1024)
-            })
-            .unwrap();
-        let env = shared_rkv.read().unwrap();
-
-        println!(
-            "created env with LMDB Version: {} key: {}",
-            env.version(),
-            hex::encode(&key)
-        );
-
-        let main_store = env.open_single("main", StoreOptions::create()).unwrap();
-        let meta_store = env.open_single("meta", StoreOptions::create()).unwrap();
-        let mut opts = StoreOptions::<LmdbDatabaseFlags>::create();
-        opts.flags.set(DatabaseFlags::DUP_FIXED, true);
-        let expiry_store = env.open_multi_integer("expiry", opts).unwrap();
-        let recently_used_store = env.open_multi_integer("recently_used", opts).unwrap();
-
-        LmdbRepoStore {
-            environment: shared_rkv.clone(),
-            main_store,
-            meta_store,
-            expiry_store,
-            recently_used_store,
-        }
-    }
-
-    /// Adds a block in the storage backend.
+        /// Adds a block in the storage backend.
     /// The block is persisted to disk.
     /// Returns the BlockId of the Block.
-    pub fn _put(&self, block: &Block) -> Result<BlockId, StorageError> {
+    fn put(&self, block: &Block) -> Result<BlockId, StorageError> {
         let block_ser = serde_bare::to_vec(&block).unwrap();
 
         let block_id = block.id();
@@ -189,7 +145,7 @@ impl LmdbRepoStore {
     /// Removes the block from the storage backend.
     /// The removed block is returned, so it can be inspected.
     /// Also returned is the approximate size of of free space that was reclaimed.
-    pub fn _del(&self, block_id: &BlockId) -> Result<(Block, usize), StorageError> {
+    fn del(&self, block_id: &BlockId) -> Result<(Block, usize), StorageError> {
         let lock = self.environment.read().unwrap();
         let mut writer = lock.write().unwrap();
         let block_id_ser = serde_bare::to_vec(&block_id).unwrap();
@@ -234,6 +190,43 @@ impl LmdbRepoStore {
 
         writer.commit().unwrap();
         Ok((block, slice.len()))
+    }
+
+}
+
+impl LmdbRepoStore {
+    /// Opens the store and returns a RepoStore object that should be kept and used to call put/get/delete/pin
+    /// The key is the encryption key for the data at rest.
+    pub fn open<'a>(path: &Path, key: [u8; 32]) -> LmdbRepoStore {
+        let mut manager = Manager::<LmdbEnvironment>::singleton().write().unwrap();
+        let shared_rkv = manager
+            .get_or_create(path, |path| {
+                //Rkv::new::<Lmdb>(path) // use this instead to disable encryption
+                Rkv::with_encryption_key_and_mapsize::<Lmdb>(path, key, 2 * 1024 * 1024 * 1024)
+            })
+            .unwrap();
+        let env = shared_rkv.read().unwrap();
+
+        println!(
+            "created env with LMDB Version: {} key: {}",
+            env.version(),
+            hex::encode(&key)
+        );
+
+        let main_store = env.open_single("main", StoreOptions::create()).unwrap();
+        let meta_store = env.open_single("meta", StoreOptions::create()).unwrap();
+        let mut opts = StoreOptions::<LmdbDatabaseFlags>::create();
+        opts.flags.set(DatabaseFlags::DUP_FIXED, true);
+        let expiry_store = env.open_multi_integer("expiry", opts).unwrap();
+        let recently_used_store = env.open_multi_integer("recently_used", opts).unwrap();
+
+        LmdbRepoStore {
+            environment: shared_rkv.clone(),
+            main_store,
+            meta_store,
+            expiry_store,
+            recently_used_store,
+        }
     }
 
     //FIXME: use BlockId, not ObjectId. this is a block level operation
@@ -400,7 +393,7 @@ impl LmdbRepoStore {
             }
         }
         for block_id in block_ids {
-            self._del(&block_id).unwrap();
+            self.del(&block_id).unwrap();
         }
         Ok(())
     }
@@ -426,7 +419,7 @@ impl LmdbRepoStore {
             }
         }
         for block_id in block_ids {
-            let (block, block_size) = self._del(&block_id).unwrap();
+            let (block, block_size) = self.del(&block_id).unwrap();
             println!("removed {:?}", block_id);
             total += block_size;
             if total >= size {
