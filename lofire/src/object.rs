@@ -334,7 +334,7 @@ impl Object {
     }
 
     /// Save blocks of the object in the store
-    pub fn save(&self, store: &mut impl RepoStore) -> Result<(), StorePutError> {
+    pub fn save(&self, store: &mut impl RepoStore) -> Result<(), StorageError> {
         let mut deduplicated: HashSet<ObjectId> = HashSet::new();
         for block in &self.blocks {
             let id = block.id();

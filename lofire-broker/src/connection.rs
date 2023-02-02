@@ -1,6 +1,7 @@
 //! Connection to a Broker, can be local or remote.
 //! If remote, it will use a Stream and Sink of framed messages
 use async_std::task;
+use async_std::sync::Mutex;
 use futures::{
     ready,
     stream::Stream,
@@ -651,7 +652,6 @@ impl ConnectionRemote {
         }
     }
 }
-use async_std::sync::Mutex;
 
 pub struct BrokerConnectionRemote<T>
 where

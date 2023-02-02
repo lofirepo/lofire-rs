@@ -31,23 +31,23 @@ impl<'a> Topic<'a> {
 
     const SUFFIX_FOR_EXIST_CHECK: u8 = Self::META;
 
-    pub fn open(id: &TopicId, store: &'a dyn BrokerStore) -> Result<Topic<'a>, StoreGetError> {
+    pub fn open(id: &TopicId, store: &'a dyn BrokerStore) -> Result<Topic<'a>, StorageError> {
         let opening = Topic {
             id: id.clone(),
             store,
         };
         if !opening.exists() {
-            return Err(StoreGetError::NotFound);
+            return Err(StorageError::NotFound);
         }
         Ok(opening)
     }
-    pub fn create(id: &TopicId, store: &'a dyn BrokerStore) -> Result<Topic<'a>, StorePutError> {
+    pub fn create(id: &TopicId, store: &'a dyn BrokerStore) -> Result<Topic<'a>, StorageError> {
         let acc = Topic {
             id: id.clone(),
             store,
         };
         if acc.exists() {
-            return Err(StorePutError::BackendError);
+            return Err(StorageError::BackendError);
         }
         let meta = TopicMeta { users: 0 };
         store.put(
@@ -70,9 +70,9 @@ impl<'a> Topic<'a> {
     pub fn id(&self) -> TopicId {
         self.id
     }
-    pub fn add_head(&self, head: &ObjectId) -> Result<(), StorePutError> {
+    pub fn add_head(&self, head: &ObjectId) -> Result<(), StorageError> {
         if !self.exists() {
-            return Err(StorePutError::BackendError);
+            return Err(StorageError::BackendError);
         }
         self.store.put(
             Self::PREFIX,
@@ -81,7 +81,7 @@ impl<'a> Topic<'a> {
             to_vec(head)?,
         )
     }
-    pub fn remove_head(&self, head: &ObjectId) -> Result<(), StoreDelError> {
+    pub fn remove_head(&self, head: &ObjectId) -> Result<(), StorageError> {
         self.store.del_property_value(
             Self::PREFIX,
             &to_vec(&self.id)?,
@@ -90,7 +90,7 @@ impl<'a> Topic<'a> {
         )
     }
 
-    pub fn has_head(&self, head: &ObjectId) -> Result<(), StoreGetError> {
+    pub fn has_head(&self, head: &ObjectId) -> Result<(), StorageError> {
         self.store.has_property_value(
             Self::PREFIX,
             &to_vec(&self.id)?,
@@ -99,7 +99,7 @@ impl<'a> Topic<'a> {
         )
     }
 
-    pub fn metadata(&self) -> Result<TopicMeta, StoreGetError> {
+    pub fn metadata(&self) -> Result<TopicMeta, StorageError> {
         match self
             .store
             .get(Self::PREFIX, &to_vec(&self.id)?, Some(Self::META))
@@ -108,9 +108,9 @@ impl<'a> Topic<'a> {
             Err(e) => Err(e),
         }
     }
-    pub fn set_metadata(&self, meta: &TopicMeta) -> Result<(), StorePutError> {
+    pub fn set_metadata(&self, meta: &TopicMeta) -> Result<(), StorageError> {
         if !self.exists() {
-            return Err(StorePutError::BackendError);
+            return Err(StorageError::BackendError);
         }
         self.store.replace(
             Self::PREFIX,
@@ -120,7 +120,7 @@ impl<'a> Topic<'a> {
         )
     }
 
-    pub fn del(&self) -> Result<(), StoreDelError> {
+    pub fn del(&self) -> Result<(), StorageError> {
         self.store
             .del_all(Self::PREFIX, &to_vec(&self.id)?, &Self::ALL_PROPERTIES)
     }

@@ -63,28 +63,11 @@ impl From<ObjectParseError> for ProtocolError {
     }
 }
 
-impl From<lofire::store::StoreGetError> for ProtocolError {
-    fn from(e: lofire::store::StoreGetError) -> Self {
+impl From<lofire::store::StorageError> for ProtocolError {
+    fn from(e: lofire::store::StorageError) -> Self {
         match e {
-            lofire::store::StoreGetError::NotFound => ProtocolError::NotFound,
-            lofire::store::StoreGetError::InvalidValue => ProtocolError::InvalidValue,
-            _ => ProtocolError::StoreError,
-        }
-    }
-}
-
-impl From<lofire::store::StorePutError> for ProtocolError {
-    fn from(e: lofire::store::StorePutError) -> Self {
-        match e {
-            _ => ProtocolError::StoreError,
-        }
-    }
-}
-
-impl From<lofire::store::StoreDelError> for ProtocolError {
-    fn from(e: lofire::store::StoreDelError) -> Self {
-        match e {
-            lofire::store::StoreDelError::NotFound => ProtocolError::NotFound,
+            lofire::store::StorageError::NotFound => ProtocolError::NotFound,
+            lofire::store::StorageError::InvalidValue => ProtocolError::InvalidValue,
             _ => ProtocolError::StoreError,
         }
     }

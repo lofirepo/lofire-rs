@@ -357,11 +357,11 @@ async fn test_sync(cnx: &mut impl BrokerConnection, user_pub_key: PubKey, userpr
         .await
         .expect("overlay_connect failed");
 
-    // Sending everything to the broker, so he can pretend he is usefull for something a little bit..
-    for (k, v) in store.get_all() {
-        debug_println!("SENDING {}", k);
+    // Sending everything to the broker
+    for (v) in store.get_all() {
+        //debug_println!("SENDING {}", k);
         let _ = public_overlay_cnx
-            .put_block(v)
+            .put_block(&v)
             .await
             .expect("put_block failed");
     }
@@ -396,7 +396,7 @@ async fn test_sync(cnx: &mut impl BrokerConnection, user_pub_key: PubKey, userpr
         &mut store,
     );
 
-    debug_println!("LOCAL STORE HAS {} BLOCKS", store.get_all().len());
+    debug_println!("LOCAL STORE HAS {} BLOCKS", store.get_len());
 
     // Let's pretend that we know that the head of the branch in the broker is at commits a6 and a7.
     // normally it would be the pub/sub that notifies us of those heads.
@@ -433,7 +433,7 @@ async fn test_sync(cnx: &mut impl BrokerConnection, user_pub_key: PubKey, userpr
 
     debug_println!("SYNCED {} BLOCKS", i);
 
-    debug_println!("LOCAL STORE HAS {} BLOCKS", store.get_all().len());
+    debug_println!("LOCAL STORE HAS {} BLOCKS", store.get_len());
 
     // now the client can verify the DAG and each commit. Then update its list of heads.
 }

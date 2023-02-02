@@ -30,28 +30,28 @@ impl<'a> Config<'a> {
 
     const SUFFIX_FOR_EXIST_CHECK: u8 = Self::MODE;
 
-    pub fn open(store: &'a dyn BrokerStore) -> Result<Config<'a>, StoreGetError> {
+    pub fn open(store: &'a dyn BrokerStore) -> Result<Config<'a>, StorageError> {
         let opening = Config { store };
         if !opening.exists() {
-            return Err(StoreGetError::NotFound);
+            return Err(StorageError::NotFound);
         }
         Ok(opening)
     }
     pub fn get_or_create(
         mode: &ConfigMode,
         store: &'a dyn BrokerStore,
-    ) -> Result<Config<'a>, StorePutError> {
+    ) -> Result<Config<'a>, StorageError> {
         match Self::open(store) {
             Err(e) => {
-                if e == StoreGetError::NotFound {
+                if e == StorageError::NotFound {
                     Self::create(mode, store)
                 } else {
-                    Err(StorePutError::BackendError)
+                    Err(StorageError::BackendError)
                 }
             }
             Ok(p) => {
                 if &p.mode().unwrap() != mode {
-                    return Err(StorePutError::InvalidValue);
+                    return Err(StorageError::InvalidValue);
                 }
                 Ok(p)
             }
@@ -60,10 +60,10 @@ impl<'a> Config<'a> {
     pub fn create(
         mode: &ConfigMode,
         store: &'a dyn BrokerStore,
-    ) -> Result<Config<'a>, StorePutError> {
+    ) -> Result<Config<'a>, StorageError> {
         let acc = Config { store };
         if acc.exists() {
-            return Err(StorePutError::BackendError);
+            return Err(StorageError::BackendError);
         }
         store.put(
             Self::PREFIX,
@@ -82,7 +82,7 @@ impl<'a> Config<'a> {
             )
             .is_ok()
     }
-    pub fn mode(&self) -> Result<ConfigMode, StoreGetError> {
+    pub fn mode(&self) -> Result<ConfigMode, StorageError> {
         match self
             .store
             .get(Self::PREFIX, &to_vec(&Self::KEY)?, Some(Self::MODE))

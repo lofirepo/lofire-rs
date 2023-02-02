@@ -41,14 +41,14 @@ struct BlockMeta {
 
 impl RepoStore for LmdbRepoStore {
     /// Retrieves a block from the storage backend.
-    fn get(&self, block_id: &BlockId) -> Result<Block, StoreGetError> {
+    fn get(&self, block_id: &BlockId) -> Result<Block, StorageError> {
         let lock = self.environment.read().unwrap();
         let reader = lock.read().unwrap();
         let block_id_ser = serde_bare::to_vec(&block_id).unwrap();
         let block_ser_res = self.main_store.get(&reader, block_id_ser.clone());
         match block_ser_res {
-            Err(e) => Err(StoreGetError::BackendError),
-            Ok(None) => Err(StoreGetError::NotFound),
+            Err(e) => Err(StorageError::BackendError),
+            Ok(None) => Err(StorageError::NotFound),
             Ok(Some(block_ser)) => {
                 // updating recently_used
                 // first getting the meta for this BlockId
@@ -86,7 +86,7 @@ impl RepoStore for LmdbRepoStore {
                 }
 
                 match serde_bare::from_slice::<Block>(&block_ser.to_bytes().unwrap()) {
-                    Err(_e) => Err(StoreGetError::InvalidValue),
+                    Err(_e) => Err(StorageError::InvalidValue),
                     Ok(o) => {
                         if o.id() != *block_id {
                             debug_println!(
@@ -104,11 +104,11 @@ impl RepoStore for LmdbRepoStore {
         }
     }
 
-    fn put(&mut self, block: &Block) -> Result<BlockId, StorePutError> {
+    fn put(&self, block: &Block) -> Result<BlockId, StorageError> {
         self._put(block)
     }
 
-    fn del(&mut self, block_id: &BlockId) -> Result<(Block, usize), StoreDelError> {
+    fn del(&self, block_id: &BlockId) -> Result<(Block, usize), StorageError> {
         self._del(block_id)
     }
 }
@@ -151,7 +151,7 @@ impl LmdbRepoStore {
     /// Adds a block in the storage backend.
     /// The block is persisted to disk.
     /// Returns the BlockId of the Block.
-    pub fn _put(&self, block: &Block) -> Result<BlockId, StorePutError> {
+    pub fn _put(&self, block: &Block) -> Result<BlockId, StorageError> {
         let block_ser = serde_bare::to_vec(&block).unwrap();
 
         let block_id = block.id();
@@ -189,7 +189,7 @@ impl LmdbRepoStore {
     /// Removes the block from the storage backend.
     /// The removed block is returned, so it can be inspected.
     /// Also returned is the approximate size of of free space that was reclaimed.
-    pub fn _del(&self, block_id: &BlockId) -> Result<(Block, usize), StoreDelError> {
+    pub fn _del(&self, block_id: &BlockId) -> Result<(Block, usize), StorageError> {
         let lock = self.environment.read().unwrap();
         let mut writer = lock.write().unwrap();
         let block_id_ser = serde_bare::to_vec(&block_id).unwrap();
@@ -198,7 +198,7 @@ impl LmdbRepoStore {
             .main_store
             .get(&writer, block_id_ser.clone())
             .unwrap()
-            .ok_or(StoreDelError::NotFound)?;
+            .ok_or(StorageError::NotFound)?;
         let slice = block_ser.to_bytes().unwrap();
         let block = serde_bare::from_slice::<Block>(&slice).unwrap(); //FIXME propagate error?
         let meta_res = self.meta_store.get(&writer, block_id_ser.clone()).unwrap();
@@ -238,13 +238,13 @@ impl LmdbRepoStore {
 
     //FIXME: use BlockId, not ObjectId. this is a block level operation
     /// Pins the object
-    pub fn pin(&self, object_id: &ObjectId) -> Result<(), StorePutError> {
+    pub fn pin(&self, object_id: &ObjectId) -> Result<(), StorageError> {
         self.set_pin(object_id, true)
     }
 
     //FIXME: use BlockId, not ObjectId. this is a block level operation
     /// Unpins the object
-    pub fn unpin(&self, object_id: &ObjectId) -> Result<(), StorePutError> {
+    pub fn unpin(&self, object_id: &ObjectId) -> Result<(), StorageError> {
         self.set_pin(object_id, false)
     }
 
@@ -252,7 +252,7 @@ impl LmdbRepoStore {
     /// Sets the pin for that Object. if add is true, will add the pin. if false, will remove the pin.
     /// A pin on an object prevents it from being removed when the store is making some disk space by using the LRU.
     /// A pin does not override the expiry. If expiry is set and is reached, the obejct will be deleted, no matter what.
-    pub fn set_pin(&self, object_id: &ObjectId, add: bool) -> Result<(), StorePutError> {
+    pub fn set_pin(&self, object_id: &ObjectId, add: bool) -> Result<(), StorageError> {
         let lock = self.environment.read().unwrap();
         let mut writer = lock.write().unwrap();
         let obj_id_ser = serde_bare::to_vec(&object_id).unwrap();

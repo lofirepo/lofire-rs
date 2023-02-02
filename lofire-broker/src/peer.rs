@@ -24,27 +24,27 @@ impl<'a> Peer<'a> {
 
     const SUFFIX_FOR_EXIST_CHECK: u8 = Self::VERSION;
 
-    pub fn open(id: &PeerId, store: &'a dyn BrokerStore) -> Result<Peer<'a>, StoreGetError> {
+    pub fn open(id: &PeerId, store: &'a dyn BrokerStore) -> Result<Peer<'a>, StorageError> {
         let opening = Peer {
             id: id.clone(),
             store,
         };
         if !opening.exists() {
-            return Err(StoreGetError::NotFound);
+            return Err(StorageError::NotFound);
         }
         Ok(opening)
     }
     pub fn update_or_create(
         advert: &PeerAdvert,
         store: &'a dyn BrokerStore,
-    ) -> Result<Peer<'a>, StorePutError> {
+    ) -> Result<Peer<'a>, StorageError> {
         let id = advert.peer();
         match Self::open(id, store) {
             Err(e) => {
-                if e == StoreGetError::NotFound {
+                if e == StorageError::NotFound {
                     Self::create(advert, store)
                 } else {
-                    Err(StorePutError::BackendError)
+                    Err(StorageError::BackendError)
                 }
             }
             Ok(p) => {
@@ -56,14 +56,14 @@ impl<'a> Peer<'a> {
     pub fn create(
         advert: &PeerAdvert,
         store: &'a dyn BrokerStore,
-    ) -> Result<Peer<'a>, StorePutError> {
+    ) -> Result<Peer<'a>, StorageError> {
         let id = advert.peer();
         let acc = Peer {
             id: id.clone(),
             store,
         };
         if acc.exists() {
-            return Err(StorePutError::BackendError);
+            return Err(StorageError::BackendError);
         }
         store.put(
             Self::PREFIX,
@@ -91,7 +91,7 @@ impl<'a> Peer<'a> {
     pub fn id(&self) -> PeerId {
         self.id
     }
-    pub fn version(&self) -> Result<u32, StoreGetError> {
+    pub fn version(&self) -> Result<u32, StorageError> {
         match self
             .store
             .get(Self::PREFIX, &to_vec(&self.id)?, Some(Self::VERSION))
@@ -100,9 +100,9 @@ impl<'a> Peer<'a> {
             Err(e) => Err(e),
         }
     }
-    pub fn set_version(&self, version: u32) -> Result<(), StorePutError> {
+    pub fn set_version(&self, version: u32) -> Result<(), StorageError> {
         if !self.exists() {
-            return Err(StorePutError::BackendError);
+            return Err(StorageError::BackendError);
         }
         self.store.replace(
             Self::PREFIX,
@@ -111,11 +111,11 @@ impl<'a> Peer<'a> {
             to_vec(&version)?,
         )
     }
-    pub fn update_advert(&self, advert: &PeerAdvert) -> Result<(), StorePutError> {
+    pub fn update_advert(&self, advert: &PeerAdvert) -> Result<(), StorageError> {
         if advert.peer() != &self.id {
-            return Err(StorePutError::InvalidValue);
+            return Err(StorageError::InvalidValue);
         }
-        let current_advert = self.advert().map_err(|e| StorePutError::BackendError)?;
+        let current_advert = self.advert().map_err(|e| StorageError::BackendError)?;
         if current_advert.version() >= advert.version() {
             return Ok(());
         }
@@ -126,7 +126,7 @@ impl<'a> Peer<'a> {
             to_vec(advert)?,
         )
     }
-    pub fn advert(&self) -> Result<PeerAdvert, StoreGetError> {
+    pub fn advert(&self) -> Result<PeerAdvert, StorageError> {
         match self
             .store
             .get(Self::PREFIX, &to_vec(&self.id)?, Some(Self::ADVERT))
@@ -135,9 +135,9 @@ impl<'a> Peer<'a> {
             Err(e) => Err(e),
         }
     }
-    pub fn set_advert(&self, advert: &PeerAdvert) -> Result<(), StorePutError> {
+    pub fn set_advert(&self, advert: &PeerAdvert) -> Result<(), StorageError> {
         if !self.exists() {
-            return Err(StorePutError::BackendError);
+            return Err(StorageError::BackendError);
         }
         self.store.replace(
             Self::PREFIX,
@@ -147,7 +147,7 @@ impl<'a> Peer<'a> {
         )
     }
 
-    pub fn del(&self) -> Result<(), StoreDelError> {
+    pub fn del(&self) -> Result<(), StorageError> {
         self.store
             .del_all(Self::PREFIX, &to_vec(&self.id)?, &Self::ALL_PROPERTIES)
     }

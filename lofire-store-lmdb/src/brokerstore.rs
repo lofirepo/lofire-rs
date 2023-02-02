@@ -30,18 +30,18 @@ pub struct LmdbBrokerStore {
 
 impl BrokerStore for LmdbBrokerStore {
     /// Load a single value property from the store.
-    fn get(&self, prefix: u8, key: &Vec<u8>, suffix: Option<u8>) -> Result<Vec<u8>, StoreGetError> {
+    fn get(&self, prefix: u8, key: &Vec<u8>, suffix: Option<u8>) -> Result<Vec<u8>, StorageError> {
         let property = Self::compute_property(prefix, key, suffix);
         let lock = self.environment.read().unwrap();
         let reader = lock.read().unwrap();
         let mut iter = self
             .main_store
             .get(&reader, property)
-            .map_err(|e| StoreGetError::BackendError)?;
+            .map_err(|e| StorageError::BackendError)?;
         match iter.next() {
             Some(Ok(val)) => Ok(val.1.to_bytes().unwrap()),
-            Some(Err(_e)) => Err(StoreGetError::BackendError),
-            None => Err(StoreGetError::NotFound),
+            Some(Err(_e)) => Err(StorageError::BackendError),
+            None => Err(StorageError::NotFound),
         }
     }
 
@@ -51,19 +51,19 @@ impl BrokerStore for LmdbBrokerStore {
         prefix: u8,
         key: &Vec<u8>,
         suffix: Option<u8>,
-    ) -> Result<Vec<Vec<u8>>, StoreGetError> {
+    ) -> Result<Vec<Vec<u8>>, StorageError> {
         let property = Self::compute_property(prefix, key, suffix);
         let lock = self.environment.read().unwrap();
         let reader = lock.read().unwrap();
         let mut iter = self
             .main_store
             .get(&reader, property)
-            .map_err(|e| StoreGetError::BackendError)?;
+            .map_err(|e| StorageError::BackendError)?;
         let mut vector: Vec<Vec<u8>> = vec![];
         while let res = iter.next() {
             vector.push(match res {
                 Some(Ok(val)) => val.1.to_bytes().unwrap(),
-                Some(Err(_e)) => return Err(StoreGetError::BackendError),
+                Some(Err(_e)) => return Err(StorageError::BackendError),
                 None => {
                     break;
                 }
@@ -79,18 +79,18 @@ impl BrokerStore for LmdbBrokerStore {
         key: &Vec<u8>,
         suffix: Option<u8>,
         value: Vec<u8>,
-    ) -> Result<(), StoreGetError> {
+    ) -> Result<(), StorageError> {
         let property = Self::compute_property(prefix, key, suffix);
         let lock = self.environment.read().unwrap();
         let reader = lock.read().unwrap();
         let exists = self
             .main_store
             .get_key_value(&reader, property, &Value::Blob(value.as_slice()))
-            .map_err(|e| StoreGetError::BackendError)?;
+            .map_err(|e| StorageError::BackendError)?;
         if exists {
             Ok(())
         } else {
-            Err(StoreGetError::NotFound)
+            Err(StorageError::NotFound)
         }
     }
 
@@ -101,13 +101,13 @@ impl BrokerStore for LmdbBrokerStore {
         key: &Vec<u8>,
         suffix: Option<u8>,
         value: Vec<u8>,
-    ) -> Result<(), StorePutError> {
+    ) -> Result<(), StorageError> {
         let property = Self::compute_property(prefix, key, suffix);
         let lock = self.environment.read().unwrap();
         let mut writer = lock.write().unwrap();
         self.main_store
             .put(&mut writer, property, &Value::Blob(value.as_slice()))
-            .map_err(|e| StorePutError::BackendError)?;
+            .map_err(|e| StorageError::BackendError)?;
 
         writer.commit().unwrap();
 
@@ -121,17 +121,17 @@ impl BrokerStore for LmdbBrokerStore {
         key: &Vec<u8>,
         suffix: Option<u8>,
         value: Vec<u8>,
-    ) -> Result<(), StorePutError> {
+    ) -> Result<(), StorageError> {
         let property = Self::compute_property(prefix, key, suffix);
         let lock = self.environment.read().unwrap();
         let mut writer = lock.write().unwrap();
         self.main_store
             .delete_all(&mut writer, property.clone())
-            .map_err(|e| StorePutError::BackendError)?;
+            .map_err(|e| StorageError::BackendError)?;
 
         self.main_store
             .put(&mut writer, property, &Value::Blob(value.as_slice()))
-            .map_err(|e| StorePutError::BackendError)?;
+            .map_err(|e| StorageError::BackendError)?;
 
         writer.commit().unwrap();
 
@@ -139,13 +139,13 @@ impl BrokerStore for LmdbBrokerStore {
     }
 
     /// Delete a property from the store.
-    fn del(&self, prefix: u8, key: &Vec<u8>, suffix: Option<u8>) -> Result<(), StoreDelError> {
+    fn del(&self, prefix: u8, key: &Vec<u8>, suffix: Option<u8>) -> Result<(), StorageError> {
         let property = Self::compute_property(prefix, key, suffix);
         let lock = self.environment.read().unwrap();
         let mut writer = lock.write().unwrap();
         self.main_store
             .delete_all(&mut writer, property)
-            .map_err(|e| StoreDelError::BackendError)?;
+            .map_err(|e| StorageError::BackendError)?;
 
         writer.commit().unwrap();
 
@@ -159,13 +159,13 @@ impl BrokerStore for LmdbBrokerStore {
         key: &Vec<u8>,
         suffix: Option<u8>,
         value: Vec<u8>,
-    ) -> Result<(), StoreDelError> {
+    ) -> Result<(), StorageError> {
         let property = Self::compute_property(prefix, key, suffix);
         let lock = self.environment.read().unwrap();
         let mut writer = lock.write().unwrap();
         self.main_store
             .delete(&mut writer, property, &Value::Blob(value.as_slice()))
-            .map_err(|e| StoreDelError::BackendError)?;
+            .map_err(|e| StorageError::BackendError)?;
 
         writer.commit().unwrap();
 
@@ -173,7 +173,7 @@ impl BrokerStore for LmdbBrokerStore {
     }
 
     /// Delete all properties of a key from the store.
-    fn del_all(&self, prefix: u8, key: &Vec<u8>, all_suffixes: &[u8]) -> Result<(), StoreDelError> {
+    fn del_all(&self, prefix: u8, key: &Vec<u8>, all_suffixes: &[u8]) -> Result<(), StorageError> {
         for suffix in all_suffixes {
             self.del(prefix, key, Some(*suffix))?;
         }

@@ -24,13 +24,13 @@ impl<'a> Account<'a> {
 
     const SUFFIX_FOR_EXIST_CHECK: u8 = Self::ADMIN;
 
-    pub fn open(id: &UserId, store: &'a dyn BrokerStore) -> Result<Account<'a>, StoreGetError> {
+    pub fn open(id: &UserId, store: &'a dyn BrokerStore) -> Result<Account<'a>, StorageError> {
         let opening = Account {
             id: id.clone(),
             store,
         };
         if !opening.exists() {
-            return Err(StoreGetError::NotFound);
+            return Err(StorageError::NotFound);
         }
         Ok(opening)
     }
@@ -38,13 +38,13 @@ impl<'a> Account<'a> {
         id: &UserId,
         admin: bool,
         store: &'a dyn BrokerStore,
-    ) -> Result<Account<'a>, StorePutError> {
+    ) -> Result<Account<'a>, StorageError> {
         let acc = Account {
             id: id.clone(),
             store,
         };
         if acc.exists() {
-            return Err(StorePutError::BackendError);
+            return Err(StorageError::BackendError);
         }
         store.put(
             Self::PREFIX,
@@ -66,9 +66,9 @@ impl<'a> Account<'a> {
     pub fn id(&self) -> UserId {
         self.id
     }
-    pub fn add_client(&self, client: &ClientId) -> Result<(), StorePutError> {
+    pub fn add_client(&self, client: &ClientId) -> Result<(), StorageError> {
         if !self.exists() {
-            return Err(StorePutError::BackendError);
+            return Err(StorageError::BackendError);
         }
         self.store.put(
             Self::PREFIX,
@@ -77,7 +77,7 @@ impl<'a> Account<'a> {
             to_vec(client)?,
         )
     }
-    pub fn remove_client(&self, client: &ClientId) -> Result<(), StoreDelError> {
+    pub fn remove_client(&self, client: &ClientId) -> Result<(), StorageError> {
         self.store.del_property_value(
             Self::PREFIX,
             &to_vec(&self.id)?,
@@ -86,7 +86,7 @@ impl<'a> Account<'a> {
         )
     }
 
-    pub fn has_client(&self, client: &ClientId) -> Result<(), StoreGetError> {
+    pub fn has_client(&self, client: &ClientId) -> Result<(), StorageError> {
         self.store.has_property_value(
             Self::PREFIX,
             &to_vec(&self.id)?,
@@ -95,9 +95,9 @@ impl<'a> Account<'a> {
         )
     }
 
-    pub fn add_overlay(&self, overlay: &OverlayId) -> Result<(), StorePutError> {
+    pub fn add_overlay(&self, overlay: &OverlayId) -> Result<(), StorageError> {
         if !self.exists() {
-            return Err(StorePutError::BackendError);
+            return Err(StorageError::BackendError);
         }
         self.store.put(
             Self::PREFIX,
@@ -106,7 +106,7 @@ impl<'a> Account<'a> {
             to_vec(overlay)?,
         )
     }
-    pub fn remove_overlay(&self, overlay: &OverlayId) -> Result<(), StoreDelError> {
+    pub fn remove_overlay(&self, overlay: &OverlayId) -> Result<(), StorageError> {
         self.store.del_property_value(
             Self::PREFIX,
             &to_vec(&self.id)?,
@@ -115,7 +115,7 @@ impl<'a> Account<'a> {
         )
     }
 
-    pub fn has_overlay(&self, overlay: &OverlayId) -> Result<(), StoreGetError> {
+    pub fn has_overlay(&self, overlay: &OverlayId) -> Result<(), StorageError> {
         self.store.has_property_value(
             Self::PREFIX,
             &to_vec(&self.id)?,
@@ -124,7 +124,7 @@ impl<'a> Account<'a> {
         )
     }
 
-    pub fn is_admin(&self) -> Result<bool, StoreGetError> {
+    pub fn is_admin(&self) -> Result<bool, StorageError> {
         if self
             .store
             .has_property_value(
@@ -140,7 +140,7 @@ impl<'a> Account<'a> {
         Ok(false)
     }
 
-    pub fn del(&self) -> Result<(), StoreDelError> {
+    pub fn del(&self) -> Result<(), StorageError> {
         self.store
             .del_all(Self::PREFIX, &to_vec(&self.id)?, &Self::ALL_PROPERTIES)
     }

@@ -7,56 +7,30 @@ use std::{
     collections::{hash_map::Iter, HashMap},
     mem::size_of_val,
 };
+use std::sync::{Arc, RwLock};
 
 pub trait RepoStore {
     /// Load a block from the store.
-    fn get(&self, id: &BlockId) -> Result<Block, StoreGetError>;
+    fn get(&self, id: &BlockId) -> Result<Block, StorageError>;
 
     /// Save a block to the store.
-    fn put(&mut self, block: &Block) -> Result<BlockId, StorePutError>;
+    fn put(&self, block: &Block) -> Result<BlockId, StorageError>;
 
     /// Delete a block from the store.
-    fn del(&mut self, id: &BlockId) -> Result<(Block, usize), StoreDelError>;
+    fn del(&self, id: &BlockId) -> Result<(Block, usize), StorageError>;
 }
 
 #[derive(Debug, PartialEq)]
-pub enum StoreGetError {
+pub enum StorageError {
     NotFound,
     InvalidValue,
     BackendError,
     SerializationError,
 }
 
-impl From<serde_bare::error::Error> for StoreGetError {
+impl From<serde_bare::error::Error> for StorageError {
     fn from(e: serde_bare::error::Error) -> Self {
-        StoreGetError::SerializationError
-    }
-}
-
-#[derive(Debug, PartialEq)]
-pub enum StorePutError {
-    BackendError,
-    SerializationError,
-    InvalidValue,
-}
-
-impl From<serde_bare::error::Error> for StorePutError {
-    fn from(e: serde_bare::error::Error) -> Self {
-        StorePutError::SerializationError
-    }
-}
-
-#[derive(Debug, PartialEq)]
-pub enum StoreDelError {
-    NotFound,
-    InvalidValue,
-    BackendError,
-    SerializationError,
-}
-
-impl From<serde_bare::error::Error> for StoreDelError {
-    fn from(e: serde_bare::error::Error) -> Self {
-        StoreDelError::SerializationError
+        StorageError::SerializationError
     }
 }
 
@@ -81,39 +55,43 @@ pub const fn store_max_value_size() -> usize {
 
 /// Store with a HashMap backend
 pub struct HashMapRepoStore {
-    blocks: HashMap<BlockId, Block>,
+    blocks: RwLock<HashMap<BlockId, Block>>,
 }
 
 impl HashMapRepoStore {
     pub fn new() -> HashMapRepoStore {
         HashMapRepoStore {
-            blocks: HashMap::new(),
+            blocks: RwLock::new(HashMap::new()),
         }
     }
 
-    pub fn get_all(&self) -> Iter<BlockId, Block> {
-        self.blocks.iter()
+    pub fn get_len(&self) -> usize {
+        self.blocks.read().unwrap().len()
+    }
+
+    pub fn get_all(&self) -> Vec<Block> {
+        self.blocks.read().unwrap().values().map(|x| x.clone()).collect()
     }
 }
 
 impl RepoStore for HashMapRepoStore {
-    fn get(&self, id: &BlockId) -> Result<Block, StoreGetError> {
-        match self.blocks.get(id) {
+    fn get(&self, id: &BlockId) -> Result<Block, StorageError> {
+        match self.blocks.read().unwrap().get(id) {
             Some(block) => Ok(block.clone()),
-            None => Err(StoreGetError::NotFound),
+            None => Err(StorageError::NotFound),
         }
     }
 
-    fn put(&mut self, block: &Block) -> Result<BlockId, StorePutError> {
+    fn put(&self, block: &Block) -> Result<BlockId, StorageError> {
         let id = block.id();
         let mut b = block.clone();
         b.set_key(None);
-        self.blocks.insert(id, b);
+        self.blocks.write().unwrap().insert(id, b);
         Ok(id)
     }
 
-    fn del(&mut self, id: &BlockId) -> Result<(Block, usize), StoreDelError> {
-        let block = self.blocks.remove(id).ok_or(StoreDelError::NotFound)?;
+    fn del(&self, id: &BlockId) -> Result<(Block, usize), StorageError> {
+        let block = self.blocks.write().unwrap().remove(id).ok_or(StorageError::NotFound)?;
         let size = size_of_val(&block);
         Ok((block, size))
     }

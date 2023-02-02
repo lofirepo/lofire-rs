@@ -41,13 +41,13 @@ impl<'a> RepoStoreInfo<'a> {
     pub fn open(
         id: &RepoStoreId,
         store: &'a dyn BrokerStore,
-    ) -> Result<RepoStoreInfo<'a>, StoreGetError> {
+    ) -> Result<RepoStoreInfo<'a>, StorageError> {
         let opening = RepoStoreInfo {
             id: id.clone(),
             store,
         };
         if !opening.exists() {
-            return Err(StoreGetError::NotFound);
+            return Err(StorageError::NotFound);
         }
         Ok(opening)
     }
@@ -55,13 +55,13 @@ impl<'a> RepoStoreInfo<'a> {
         id: &RepoStoreId,
         key: &SymKey,
         store: &'a dyn BrokerStore,
-    ) -> Result<RepoStoreInfo<'a>, StorePutError> {
+    ) -> Result<RepoStoreInfo<'a>, StorageError> {
         let acc = RepoStoreInfo {
             id: id.clone(),
             store,
         };
         if acc.exists() {
-            return Err(StorePutError::BackendError);
+            return Err(StorageError::BackendError);
         }
         store.put(Self::PREFIX, &to_vec(&id)?, Some(Self::KEY), to_vec(key)?)?;
         Ok(acc)
@@ -78,7 +78,7 @@ impl<'a> RepoStoreInfo<'a> {
     pub fn id(&self) -> &RepoStoreId {
         &self.id
     }
-    pub fn key(&self) -> Result<SymKey, StoreGetError> {
+    pub fn key(&self) -> Result<SymKey, StorageError> {
         match self
             .store
             .get(Self::PREFIX, &to_vec(&self.id)?, Some(Self::KEY))
@@ -87,7 +87,7 @@ impl<'a> RepoStoreInfo<'a> {
             Err(e) => Err(e),
         }
     }
-    pub fn del(&self) -> Result<(), StoreDelError> {
+    pub fn del(&self) -> Result<(), StorageError> {
         self.store
             .del_all(Self::PREFIX, &to_vec(&self.id)?, &Self::ALL_PROPERTIES)
     }

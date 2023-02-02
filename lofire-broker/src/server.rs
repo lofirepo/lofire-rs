@@ -23,7 +23,7 @@ use futures::FutureExt;
 use futures::Stream;
 use lofire::object::Object;
 use lofire::store::RepoStore;
-use lofire::store::StoreGetError;
+use lofire::store::StorageError;
 use lofire::types::*;
 use lofire::utils::*;
 use lofire_net::errors::*;
@@ -48,18 +48,10 @@ impl From<BrokerError> for ProtocolError {
     }
 }
 
-impl From<lofire::store::StorePutError> for BrokerError {
-    fn from(e: lofire::store::StorePutError) -> Self {
+impl From<lofire::store::StorageError> for BrokerError {
+    fn from(e: lofire::store::StorageError) -> Self {
         match e {
-            lofire::store::StorePutError::InvalidValue => BrokerError::MismatchedMode,
-            _ => BrokerError::CannotStart,
-        }
-    }
-}
-
-impl From<lofire::store::StoreGetError> for BrokerError {
-    fn from(e: lofire::store::StoreGetError) -> Self {
-        match e {
+            lofire::store::StorageError::InvalidValue => BrokerError::MismatchedMode,
             _ => BrokerError::CannotStart,
         }
     }
@@ -839,7 +831,7 @@ impl BrokerServer {
         //debug_println!("SEARCHING OVERLAY");
         let overlay_res = Overlay::open(&overlay_id, &self.store);
         let overlay = match overlay_res {
-            Err(StoreGetError::NotFound) => {
+            Err(StorageError::NotFound) => {
                 // we have to add it
                 if self.mode == ConfigMode::Local && repo_id.is_none() {
                     return Err(ProtocolError::RepoIdRequired);
